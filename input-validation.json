@@ -1,0 +1,9 @@
+{
+  "spotify_version": "9.1.78",
+  "spotify_build": "917802214",
+  "minimum_ios": "16.1",
+  "sha256": "90d018bcb849ccdb1dc6c12709272d86155cade35b5b87542cdd6952341cdb69",
+  "merged_output": false,
+  "encrypted": false,
+  "runtime_tested": false
+}

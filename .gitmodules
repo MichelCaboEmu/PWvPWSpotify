@@ -1,0 +1,6 @@
+[submodule "upstream/spotipw"]
+    path = upstream/spotipw
+    url = https://github.com/skopevoj/spoti.pw.git
+[submodule "upstream/eevee"]
+    path = upstream/eevee
+    url = https://github.com/SideloadLabs/EeveeSpotifyReincarnated.git

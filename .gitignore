@@ -1,0 +1,8 @@
+/build/
+/out/
+/ipa/
+/theos/
+*.ipa
+*.p12
+*.mobileprovision
+__pycache__/
