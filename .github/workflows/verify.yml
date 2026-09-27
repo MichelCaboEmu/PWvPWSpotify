@@ -43,5 +43,7 @@ jobs:
           submodules: recursive
       - name: Install tools
         run: brew install make dpkg ldid
+      - name: Check changed iOS sources before Swift build
+        run: bash scripts/check_features.sh
       - name: Compile both modules (no IPA)
         run: bash scripts/build.sh --compile-check
