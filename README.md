@@ -3,6 +3,9 @@
 Fusion de **spoti.pw v0.21.1 (GPL-3.0)** et **EeveeSpotify Reincarnated**, pour
 **Spotify 9.1.78, build 917802214**. Cible utilisateur : iOS 26.4.1.
 
+Le nom affiché sur l’iPhone est **Spotify**. Le dépôt et le fichier IPA conservent
+le nom PWvPWSpotify pour identifier la fusion.
+
 Les deux sources sont fixées par SHA dans `upstreams.json` et référencées comme
 sous-modules. `scripts/prepare.py` assemble les sources et applique le profil de
 fusion, sans modifier les dépôts d’origine. Les versions récentes de spoti.pw sous
@@ -19,8 +22,33 @@ PolyForm Strict ne sont pas utilisées.
 - Le workflow **Verify and compile fusion** compile les deux modules après un push.
   Il utilise une table de flags vide uniquement pour contrôler la compilation,
   ne produit aucun IPA et n’est pas une validation fonctionnelle.
-- **Aucun essai sur iPhone n’a été réalisé.** Consulter les Actions pour l’état réel
-  de compilation. Un IPA n’existe qu’après succès de **Build PWvPWSpotify IPA**.
+- L’utilisateur confirme que la première version fonctionne sur son iPhone,
+  mais signale l’absence de vidéo sur l’écran verrouillé. Le correctif ci-dessous
+  reste à valider sur appareil. Consulter les Actions pour l’état de compilation.
+  Un nouvel IPA n’existe qu’après succès de **Build PWvPWSpotify IPA**.
+
+## Vidéos sur l’écran verrouillé (iOS 26)
+
+Dans **Mod Settings → Player → Lock screen widget**, l’option **Lock screen videos**
+coordonne les flags d’animation, de vidéo et de Canvas. Elle est activée par défaut
+sur iOS 26, sauf après une réinitialisation en mode Spotify d’origine. Redémarrer
+l’application après modification. Elle supprime le conflit où le lecteur
+redessiné forçait Canvas à l’arrêt, même avec les options d’animation activées.
+Canvas peut également réapparaître à l’intérieur du lecteur.
+
+La ligne **Current status** indique si Spotify fournit des métadonnées d’animation
+pour le morceau en cours ; ce n’est pas une confirmation du téléchargement de la
+vidéo ou de son affichage par iOS. Le binaire 9.1.78 contient déjà l’intégration
+`MPMediaItemAnimatedArtwork` et les deux formats d’animation Apple. Ce correctif
+utilise cette intégration, sans récupérer les vidéos du catalogue Apple Music.
+
+Lancer un morceau disposant d’une vidéo, garder Canvas activé dans les réglages
+Spotify, verrouiller l’iPhone et toucher la pochette. Les vidéos ne sont pas
+disponibles pour tous les morceaux. Selon la [documentation Apple](https://developer.apple.com/documentation/mediaplayer/providing-animated-artwork-for-media-items),
+iOS peut afficher une image fixe en économie d’énergie ou de données, avec
+Réduire les animations activé, avec la lecture automatique des images animées
+désactivée, ou si le téléphone chauffe. Le conflit de flags est corrigé dans le
+code ; le fonctionnement réel sur l’appareil n’est pas encore confirmé.
 
 ## Choix des fonctionnalités communes
 

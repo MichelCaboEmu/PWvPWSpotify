@@ -89,6 +89,8 @@ def main():
 
     sgs=sg/'tweak/Sources'
     for name, dest in [('PWEeveeLyrics.m','Shared/LyricsSources/PWEeveeLyrics.m'),
+                       ('PWLockScreenArtwork.h','Shared/Player/PWLockScreenArtwork.h'),
+                       ('PWLockScreenArtwork.m','Shared/Player/PWLockScreenArtwork.m'),
                        ('PWEeveeSettings.h','App/PWEeveeSettings.h'),
                        ('PWEeveeSettings.m','App/PWEeveeSettings.m')]:
         shutil.copy2(ROOT/'overlays/spotipw'/name,sgs/dest)
@@ -101,7 +103,34 @@ def main():
             make(@"genius", @"Genius", @"Eevee: plain text fallback", PWEeveeGeniusAsk),''')
     change(sgs/'App/ModSettings.x','#import "Pages.h"','#import "Pages.h"\n#import "PWEeveeSettings.h"')
     change(sgs/'App/ModSettings.x','        audioEffects,','        audioEffects,\n        PWEeveeSettingsRow(),')
-    change(sgs/'App/ModSettings.x','initWithTitle:@"spoti.pw"','initWithTitle:@"PWvPWSpotify"')
+    change(sgs/'App/ModSettings.x','initWithTitle:@"spoti.pw"','initWithTitle:@"Spotify"')
+
+    # Canvas is also a source for Spotify's lock-screen artwork. Do not let the
+    # redesigned player's unconditional Canvas kill override that feature.
+    player=sgs/'Redesigned/Player/PlayerField.x'
+    change(player,'#import "Player.h"',
+           '#import "Player.h"\n#import "Shared/Player/PWLockScreenArtwork.h"')
+    change(player,'        @"ios-feature-canvas.canvas_enabled": @NO,\n','')
+    change(player,'    SGRedesignForceFlags(@"player", flags);', '''    SGRedesignForceFlags(@"player", flags);
+    SGRegisterFlagForcer(YES,
+        ^id(NSString *key) {
+            return SGRedesignedUI() && !PWLockScreenArtworkEnabled() &&
+                [key isEqualToString:@"ios-feature-canvas.canvas_enabled"] ? @NO : nil;
+        },
+        ^id(NSString *key) {
+            return SGRedesignedUIStored() && !PWLockScreenArtworkStored() &&
+                [key isEqualToString:@"ios-feature-canvas.canvas_enabled"] ? @NO : nil;
+        });''')
+    settings=sgs/'Shared/Player/PlayerSettings.m'
+    change(settings,'#import "PlayerSettings.h"',
+           '#import "PlayerSettings.h"\n#import "PWLockScreenArtwork.h"')
+    change(settings,'        SGSection(@"Artwork", @[', '''        SGNotedSection(@"Lock screen videos", @[
+            SGSwitchRow(@"Lock screen videos", @"Available videos for the current track; iOS 26 required", PWKeyLockScreenArtwork),
+            SGStatRow(@"Current status", ^NSString *{ return PWLockScreenArtworkStatus(); }),''')
+    change(settings,'    ] footer:nil];', '''    ] footer:@"Restart Spotify after changing these switches. Play a track with video artwork, then tap its cover on the Lock Screen. Keep Canvas enabled in Spotify. iOS may show a still image when Low Power Mode, Low Data Mode or Reduce Motion is on, or Auto-Play Animated Images is off. Not every track has a video."];''')
+    # SGNotedSection takes a footer; the final section is the artwork section.
+    change(settings,'            SGFlagRow(@"Companion content", @"ios-feature-lockscreen.companion_content_enabled"),\n        ]),',
+           '            SGFlagRow(@"Companion content", @"ios-feature-lockscreen.companion_content_enabled"),\n        ], @"Enables video artwork and Canvas together. Canvas may also appear inside the player."),')
 
     # Updates refer to this combination, never offer an incompatible upstream IPA.
     update=sgs/'App/About/Update.m'

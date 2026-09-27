@@ -43,7 +43,7 @@ EOF
 fi
 export PW_EEVEE_DEB="$DEB"
 OUT="$ROOT/out/PWvPWSpotify-9.1.78.ipa"
-bash "$SG/scripts/pipeline.sh" "$INPUT" --no-flex --name PWvPWSpotify -o "$OUT"
+bash "$SG/scripts/pipeline.sh" "$INPUT" --no-flex --name Spotify -o "$OUT"
 bash "$EE/Tools/alt-icons.sh" "$OUT"
 # Keep both the Live Activity and native widget. Add the same Safari extension
 # that Eevee documents, pinned to an inspected upstream revision.

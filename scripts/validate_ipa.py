@@ -71,6 +71,8 @@ def validate(path, output=False, expected_sha=None):
             for symbol in required:
                 if symbol.encode() not in data:raise ValueError(f'Missing required symbol: {symbol}')
         else:
+            if info.get('CFBundleDisplayName')!='Spotify' or info.get('CFBundleName')!='Spotify':
+                raise ValueError('Output application must be named Spotify')
             for lib in ['spotifyglass.dylib','EeveeSpotify.dylib','SpotifyGlassAppGroups.dylib']:
                 full=f'{app}/Frameworks/{lib}'
                 if full not in names or not any(d.endswith('/'+lib) for d in deps):raise ValueError(f'Missing loaded module: {lib}')
