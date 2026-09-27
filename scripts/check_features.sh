@@ -14,15 +14,22 @@ SOURCES=(
   Shared/LockScreenLyrics/LockScreenLyrics.x App/PWFeatureSettings.m
   Redesigned/Lyrics/SGRKaraokeView.m Native/Lyrics/LyricsPage.x
 )
+failed=0
 for relative in "${SOURCES[@]}"; do
   input="$SOURCE/$relative"
   if [[ "$relative" == *.x ]]; then
     input="$STAGE/$(basename "$relative").m"
-    perl "$THEOS/bin/logos.pl" -c generator=internal "$SOURCE/$relative" > "$input"
+    if ! perl "$THEOS/bin/logos.pl" -c generator=internal "$SOURCE/$relative" > "$input"; then
+      failed=1
+      continue
+    fi
   fi
-  xcrun --sdk iphoneos clang -target arm64-apple-ios16.0 -isysroot "$SDK" \
+  if ! xcrun --sdk iphoneos clang -target arm64-apple-ios16.0 -isysroot "$SDK" \
     -fobjc-arc -fblocks -fsyntax-only -Werror \
     -I "$SOURCE" -I "$(dirname "$SOURCE/$relative")" \
     -I "$THEOS/include" -I "$THEOS/vendor/include" \
-    '-DSG_VERSION="feature-check"' "$input"
+    '-DSG_VERSION="feature-check"' "$input"; then
+    failed=1
+  fi
 done
+exit "$failed"

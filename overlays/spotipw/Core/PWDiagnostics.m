@@ -9,7 +9,7 @@ static NSString *directory;
 static NSUncaughtExceptionHandler *previousHandler;
 static void *queueKey = &queueKey;
 static NSString *path(NSString *name) { return [directory stringByAppendingPathComponent:name]; }
-static void sync(dispatch_block_t block) {
+static void diagnosticSync(dispatch_block_t block) {
     if (dispatch_get_specific(queueKey)) block(); else dispatch_sync(queue, block);
 }
 static void writeEvent(NSString *category, NSString *code, NSInteger status) {
@@ -43,7 +43,7 @@ static void uncaught(NSException *exception) {
 NSString *PWDiagnosticSnapshot(void) {
     if (!queue) return @"Diagnostics unavailable";
     __block NSMutableString *result;
-    sync(^{
+    diagnosticSync(^{
         NSDictionary *bundle = NSBundle.mainBundle.infoDictionary;
         result = [NSMutableString stringWithFormat:@"PWvPWSpotify diagnostics\nBuild: %s\nSpotify: %@ (%@)\niOS: %@\nLow power: %d\nReduce motion: %d\n\n",
             PW_BUILD_SHA, bundle[@"CFBundleShortVersionString"], bundle[@"CFBundleVersion"],
@@ -58,7 +58,7 @@ NSString *PWDiagnosticSnapshot(void) {
 }
 void PWClearDiagnostics(void) {
     if (!queue) return;
-    sync(^{ for (NSString *name in @[@"previous.jsonl", @"events.jsonl", @"exception.json", @"metric-crash.json"])
+    diagnosticSync(^{ for (NSString *name in @[@"previous.jsonl", @"events.jsonl", @"exception.json", @"metric-crash.json"])
         [NSFileManager.defaultManager removeItemAtPath:path(name) error:nil]; });
     PWEvent(@"diagnostics", @"cleared", 0);
 }
