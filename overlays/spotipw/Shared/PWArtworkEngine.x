@@ -8,6 +8,7 @@
 #import <MediaPlayer/MediaPlayer.h>
 #import <AVFoundation/AVFoundation.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <objc/runtime.h>
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 static dispatch_queue_t renderQueue;
@@ -17,6 +18,7 @@ static NSObject *entryLock;
 static NSString *forceKey;
 static NSString *statusText = @"En attente de lecture";
 static NSString *lastSeen;
+static char kPWArtworkMarker;
 static NSString *identity(NSDictionary *info) {
     NSString *title = info[MPMediaItemPropertyTitle];
     if (![title isKindOfClass:NSString.class] || !title.length) return nil;
@@ -133,7 +135,7 @@ static BOOL nativeArtwork(NSDictionary *info) {
     if(@available(iOS 26.0,*)) {
         for(NSString *field in @[MPNowPlayingInfoProperty3x4AnimatedArtwork,MPNowPlayingInfoProperty1x1AnimatedArtwork]) {
             id art=info[field];
-            if([art isKindOfClass:MPMediaItemAnimatedArtwork.class] && ![((MPMediaItemAnimatedArtwork *)art).artworkID hasPrefix:@"pw:"])return YES;
+            if([art isKindOfClass:MPMediaItemAnimatedArtwork.class] && !objc_getAssociatedObject(art, &kPWArtworkMarker))return YES;
         }
     }
     return NO;
@@ -185,6 +187,7 @@ static NSDictionary *decorate(NSDictionary *info) {
             } videoAssetFileURLRequestHandler:^(CGSize size,void (^completion)(NSURL *)){
                 dispatch_async(dispatch_get_main_queue(),^{[entry request:completion];});
             }];
+        objc_setAssociatedObject(artwork, &kPWArtworkMarker, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         NSMutableDictionary *updated=[info mutableCopy];
         [updated removeObjectForKey:MPNowPlayingInfoProperty1x1AnimatedArtwork];
         updated[MPNowPlayingInfoProperty3x4AnimatedArtwork]=artwork;
