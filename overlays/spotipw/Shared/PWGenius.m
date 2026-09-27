@@ -105,7 +105,7 @@ static UIViewController *presenter(UIView *view) {
 void PWShowGenius(NSString *trackID, NSString *line, UIView *source) {
     if (!SGEnabled(PWKeyGenius) || !line.length) return;
     SPTPlayerTrack *track = SGKaraokeTrackFor(trackID);
-    if (!track) track = SGPlayerState().track;
+    if (!track && (!trackID.length || [trackID isEqualToString:SGKaraokePlayingTrack()])) track = SGPlayerState().track;
     UIViewController *vc = presenter(source); if (!vc || [vc isKindOfClass:PWGeniusSheet.class]) return;
     PWGeniusSheet *sheet = [PWGeniusSheet new]; sheet.line = line;
     sheet.trackTitle = track.trackTitle ?: @""; sheet.artist = track.artistName ?: @"";

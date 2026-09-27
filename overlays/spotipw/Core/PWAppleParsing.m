@@ -7,9 +7,14 @@ static NSString *capture(NSString *s, NSString *pattern) {
     NSTextCheckingResult *m = [r firstMatchInString:s options:0 range:NSMakeRange(0, s.length)];
     return m.numberOfRanges > 1 ? [s substringWithRange:[m rangeAtIndex:1]] : nil;
 }
-static NSString *video(id object) {
+static NSString *video(id object, NSString *albumID) {
     if ([object isKindOfClass:NSDictionary.class]) {
-        for (NSString *key in @[@"tallVideoArtwork", @"videoArtwork"]) {
+        id descriptor=[object[@"contentDescriptor"] isKindOfClass:NSDictionary.class] ? object[@"contentDescriptor"] : @{};
+        id identifiers=[descriptor isKindOfClass:NSDictionary.class] ? descriptor[@"identifiers"] : nil;
+        NSString *itemID=[identifiers isKindOfClass:NSDictionary.class] ? string(identifiers[@"storeAdamID"]) : nil;
+        BOOL header=[string(object[@"id"]) hasPrefix:@"album-detail-header - "] &&
+            [string(descriptor[@"kind"]) isEqualToString:@"album"] && [itemID isEqualToString:albumID];
+        if (header) for (NSString *key in @[@"tallVideoArtwork", @"videoArtwork"]) {
         id field = object[key];
         if ([field isKindOfClass:NSDictionary.class] && [field[@"dictionary"] isKindOfClass:NSDictionary.class]) {
             for (id value in [field[@"dictionary"] allValues]) if ([value isKindOfClass:NSDictionary.class]) {
@@ -18,16 +23,17 @@ static NSString *video(id object) {
             }
         }
         }
-        for (id value in [object allValues]) { NSString *found = video(value); if (found) return found; }
+        for (id value in [object allValues]) { NSString *found = video(value, albumID); if (found) return found; }
     } else if ([object isKindOfClass:NSArray.class]) {
-        for (id value in object) { NSString *found = video(value); if (found) return found; }
+        for (id value in object) { NSString *found = video(value, albumID); if (found) return found; }
     }
     return nil;
 }
-NSURL *PWAppleVideoFromPage(NSString *html) {
+NSURL *PWAppleVideoFromPage(NSString *html, NSString *albumID) {
+    if (!albumID.length) return nil;
     NSString *json = capture(html, @"<script[^>]*id=[\"']serialized-server-data[\"'][^>]*>(.*?)</script>");
     id root = json ? [NSJSONSerialization JSONObjectWithData:[json dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil] : nil;
-    NSURL *url = [NSURL URLWithString:video(root) ?: @""];
+    NSURL *url = [NSURL URLWithString:video(root, albumID) ?: @""];
     return PWAllowedAppleURL(url) ? url : nil;
 }
 NSURL *PWAppleVariant(NSString *playlist, NSURL *base) {

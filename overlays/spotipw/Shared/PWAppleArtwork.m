@@ -68,18 +68,20 @@ void PWAppleArtwork(NSString *album, NSString *artist, NSURL *destination, void 
     NSURL *search = PWQueryURL(@"https://itunes.apple.com/search", @{@"term":[NSString stringWithFormat:@"%@ %@", artist, album], @"entity":@"album", @"limit":@"8", @"country":@"US"});
     PWJSON(search, nil, ^(NSDictionary *root, NSInteger status) {
         if (finished) return;
-        NSURL *page = nil;
+        NSURL *page = nil; NSString *albumID = nil;
         id results = root[@"results"];
         if ([results isKindOfClass:NSArray.class]) for (id item in results) {
             if (![item isKindOfClass:NSDictionary.class]) continue;
             if (PWMatches(album, string(item[@"collectionName"])) && PWMatches(artist, string(item[@"artistName"]))) {
-                page = [NSURL URLWithString:string(item[@"collectionViewUrl"]) ?: @""]; break;
+                page = [NSURL URLWithString:string(item[@"collectionViewUrl"]) ?: @""];
+                if ([item[@"collectionId"] isKindOfClass:NSNumber.class]) albumID = [item[@"collectionId"] stringValue];
+                break;
             }
         }
-        if (!PWAllowedAppleURL(page)) { PWEvent(@"apple", @"no_album_match", status); finish(nil,nil); return; }
+        if (!PWAllowedAppleURL(page) || !albumID.length) { PWEvent(@"apple", @"no_album_match", status); finish(nil,nil); return; }
         PWFetch(page, nil, 3 * 1024 * 1024, ^(NSData *data, NSInteger code) {
             if (finished) return;
-            NSURL *master = PWAppleVideoFromPage([[NSString alloc] initWithData:data ?: NSData.data encoding:NSUTF8StringEncoding]);
+            NSURL *master = PWAppleVideoFromPage([[NSString alloc] initWithData:data ?: NSData.data encoding:NSUTF8StringEncoding], albumID);
             if (!master) { PWEvent(@"apple", @"no_public_video", code); finish(nil,nil); return; }
             PWFetch(master, nil, 256 * 1024, ^(NSData *bytes, NSInteger s) {
                 if (finished) return;

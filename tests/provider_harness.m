@@ -37,10 +37,13 @@ int main(void) {
             return [NSString stringWithFormat:@"<script type=\"application/json\" id=\"serialized-server-data\">%@</script>", [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]];
         };
         id motion = @{@"dictionary":@{@"motionDetailSquare":@{@"video":base.absoluteString}}};
-        check([PWAppleVideoFromPage(page(@[@{@"data":@{@"tallVideoArtwork":NSNull.null,@"videoArtwork":motion}}])) isEqual:base], @"square fallback when tall artwork is null");
-        check(!PWAppleVideoFromPage(page(@[@{@"videoArtwork":NSNull.null}])), @"album without motion artwork");
-        check(!PWAppleVideoFromPage(@"<html>Unavailable</html>"), @"service error HTML");
-        check(!PWAppleVideoFromPage(nil), @"absent page");
+        NSMutableDictionary *header=[@{@"id":@"album-detail-header - 42",@"contentDescriptor":@{@"kind":@"album",@"identifiers":@{@"storeAdamID":@"42"}},@"tallVideoArtwork":NSNull.null,@"videoArtwork":motion} mutableCopy];
+        check([PWAppleVideoFromPage(page(@[@{@"data":header}]),@"42") isEqual:base], @"square fallback when tall artwork is null");
+        check(!PWAppleVideoFromPage(page(@[@{@"data":header}]),@"43"), @"do not use another album's animation");
+        header[@"videoArtwork"]=NSNull.null;
+        check(!PWAppleVideoFromPage(page(@[header,@{@"videoArtwork":motion}]),@"42"), @"ignore recommendation videos when requested album is static");
+        check(!PWAppleVideoFromPage(@"<html>Unavailable</html>",@"42"), @"service error HTML");
+        check(!PWAppleVideoFromPage(nil,@"42"), @"absent page");
         NSURL *query = PWQueryURL(@"https://api.genius.com/search",@{@"q":@"A&B + #é"});
         check([NSURLComponents componentsWithURL:query resolvingAgainstBaseURL:NO].queryItems.firstObject.value != nil, @"query generated");
         check([[NSURLComponents componentsWithURL:query resolvingAgainstBaseURL:NO].queryItems.firstObject.value isEqualToString:@"A&B + #é"], @"query characters round trip");

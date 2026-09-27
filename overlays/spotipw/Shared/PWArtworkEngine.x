@@ -203,7 +203,10 @@ void PWRetryArtwork(void){
     }
 }
 %hook MPNowPlayingInfoCenter
-- (void)setNowPlayingInfo:(NSDictionary *)info { %orig(decorate(info)); }
+- (void)setNowPlayingInfo:(NSDictionary *)info {
+    NSDictionary *decorated = decorate(info);
+    %orig(decorated);
+}
 %end
 %ctor {
     entryLock=[NSObject new];entries=[NSMutableDictionary dictionary];renderQueue=dispatch_queue_create("pw.artwork.render",DISPATCH_QUEUE_SERIAL);
