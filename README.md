@@ -22,33 +22,99 @@ PolyForm Strict ne sont pas utilisées.
 - Le workflow **Verify and compile fusion** compile les deux modules après un push.
   Il utilise une table de flags vide uniquement pour contrôler la compilation,
   ne produit aucun IPA et n’est pas une validation fonctionnelle.
-- L’utilisateur confirme que la première version fonctionne sur son iPhone,
-  mais signale l’absence de vidéo sur l’écran verrouillé. Le correctif ci-dessous
-  reste à valider sur appareil. Consulter les Actions pour l’état de compilation.
+- La version précédente a été essayée sur iPhone : les vidéos fonctionnent, avec
+  un défaut intermittent. Les nouvelles fonctions ci-dessous nécessitent encore
+  un essai sur appareil. Consulter les Actions pour leur état de compilation.
   Un nouvel IPA n’existe qu’après succès de **Build PWvPWSpotify IPA**.
+- Un banc Objective-C sur macOS contrôle les vrais parseurs : correspondances
+  Genius, pages Apple sans vidéo, choix HLS, refus des formats non pris en charge,
+  domaines autorisés et échappement des recherches.
 
 ## Vidéos sur l’écran verrouillé (iOS 26)
 
-Dans **Mod Settings → Player → Lock screen widget**, l’option **Lock screen videos**
-coordonne les flags d’animation, de vidéo et de Canvas. Elle est activée par défaut
-sur iOS 26, sauf après une réinitialisation en mode Spotify d’origine. Redémarrer
-l’application après modification. Elle supprime le conflit où le lecteur
-redessiné forçait Canvas à l’arrêt, même avec les options d’animation activées.
-Canvas peut également réapparaître à l’intérieur du lecteur.
+Dans **Mod Settings → Vidéos de l’écran verrouillé**, choisir la priorité :
 
-La ligne **Current status** indique si Spotify fournit des métadonnées d’animation
-pour le morceau en cours ; ce n’est pas une confirmation du téléchargement de la
-vidéo ou de son affichage par iOS. Le binaire 9.1.78 contient déjà l’intégration
-`MPMediaItemAnimatedArtwork` et les deux formats d’animation Apple. Ce correctif
-utilise cette intégration, sans récupérer les vidéos du catalogue Apple Music.
+- **Spotify, puis les autres sources** (défaut) : conserver les métadonnées vidéo
+  natives lorsqu’elles existent ; sinon essayer Apple Music puis la pochette.
+- **Apple Music en priorité** : chercher une pochette animée pour le même album
+  et le même artiste, puis générer une animation si nécessaire.
+- **Animation de la pochette** : produire localement une boucle de six secondes
+  avec un léger mouvement et zoom, sans fournisseur vidéo.
+- **Spotify uniquement** : garder les vidéos fournies par Spotify.
 
-Lancer un morceau disposant d’une vidéo, garder Canvas activé dans les réglages
-Spotify, verrouiller l’iPhone et toucher la pochette. Les vidéos ne sont pas
-disponibles pour tous les morceaux. Selon la [documentation Apple](https://developer.apple.com/documentation/mediaplayer/providing-animated-artwork-for-media-items),
-iOS peut afficher une image fixe en économie d’énergie ou de données, avec
-Réduire les animations activé, avec la lecture automatique des images animées
-désactivée, ou si le téléphone chauffe. Le conflit de flags est corrigé dans le
-code ; le fonctionnement réel sur l’appareil n’est pas encore confirmé.
+Les deux fournisseurs complémentaires ont chacun un interrupteur. Aucun import
+ni accès aux vidéos personnelles n’est ajouté. Redémarrer après un changement
+pour renouveler les objets d’animation déjà conservés par iOS.
+
+**Apple Music est expérimental** : recherche publique iTunes, correspondance
+exacte après normalisation, puis vidéo publique de la page d’album. Ce n’est pas
+une API officielle de motion artwork. Les changements du site, la disponibilité
+régionale ou un album sans vidéo peuvent empêcher la recherche. Seuls les flux
+AVC non chiffrés contenant un fichier MP4 unique sont pris en charge. Aucun
+identifiant Spotify ni accès au compte Apple Music n’est transmis ; le titre
+et l’artiste de l’album servent à la recherche. Le fichier est adapté au format
+3:4 demandé par iOS et conservé temporairement dans le cache de l’application.
+
+Le chargement commence quand iOS demande la vidéo. Les requêtes ont des délais
+et limites de taille ; les appels simultanés pour la même piste sont regroupés.
+Une réponse tardive ne remplace pas les métadonnées d’une nouvelle piste. Le
+rafraîchissement des paroles conserve désormais l’identité de la pochette et
+évite de renvoyer un ancien état si Spotify vient d’en fournir un nouveau.
+
+**Relancer l’animation** renouvelle l’animation du morceau actuel sans quitter
+Spotify. En priorité Spotify, il essaie les sources complémentaires même si
+Spotify a annoncé une vidéo qui ne s’affiche pas. Le mod ne peut pas détecter
+fiablement l’échec interne du téléchargement vidéo natif ; ce bouton permet de
+réessayer. En mode Spotify uniquement, aucune source complémentaire n’est utilisée.
+
+La ligne **Source / état** indique le fournisseur et la préparation du fichier,
+pas la preuve de son affichage par iOS. Garder Canvas activé, verrouiller l’iPhone
+et toucher la pochette. Les contraintes [Apple](https://developer.apple.com/documentation/mediaplayer/providing-animated-artwork-for-media-items)
+restent applicables : économie d’énergie/de données, réduction des animations,
+lecture automatique désactivée et température peuvent maintenir l’image fixe.
+Le réglage historique **Player → Lock screen widget → Lock screen videos** contrôle
+le même interrupteur principal.
+
+## Explications Genius
+
+**Appui long sur une ligne de paroles** : ouvre une fiche avec le passage et ses
+annotations. L’appui simple conserve le déplacement dans la chanson. Fonctionne
+avec les paroles redessinées ; dans l’interface native, nécessite le plein écran
+et un libellé identifiable correspondant à une ligne du moteur de paroles.
+
+La recherche vérifie le titre et l’artiste, puis rapproche la ligne d’un fragment
+annoté (mots complets, jamais une correspondance arbitraire). Les annotations sont
+attribuées à Genius et peuvent être des interprétations de la communauté. Tous les
+passages ne sont pas annotés. Le bouton **Genius ↗** ouvre la source et ses auteurs
+avec Safari intégré, sans quitter l’application.
+
+Dans **Mod Settings → Genius — explications → Configurer l’accès Genius**, saisir
+si nécessaire le jeton de son application créée sur [Genius](https://genius.com/api-clients).
+Il est conservé dans le trousseau de cet appareil, exclu des sauvegardes de réglages
+et des journaux. Aucun jeton partagé n’est embarqué. Sans accès à l’API, un message
+explique le problème et le bouton Genius reste disponible. La réponse API en direct
+n’a pas pu être validée depuis l’environnement de développement ; tester avec un
+jeton personnel et un passage annoté reste nécessaire.
+
+## Journaux et crashs
+
+**Mod Settings → Diagnostics et journaux → Exporter les logs** partage un fichier
+texte à joindre au message de diagnostic. **Marquer un problème maintenant** ajoute
+un repère temporel. **Effacer les journaux** supprime les événements enregistrés.
+Rien n’est envoyé automatiquement.
+
+Le fichier contient le commit de compilation, les versions, les transitions de
+l’application, les étapes des fournisseurs et leurs codes d’erreur. Les événements
+ne recopient ni jetons, ni URL de requêtes, ni titres, ni paroles. Rotation des
+journaux à 256 Kio, avec une seule archive. Les exceptions Objective-C non gérées
+conservent leurs adresses de pile sans leur message ; MetricKit ajoute les rapports
+de crash qu’iOS livre à l’application, avec des données techniques de l’appareil.
+Ce mécanisme ne capture pas tous les crashs, arrêts forcés ou arrêts mémoire.
+
+Après un crash, rouvrir l’application puis exporter les logs. Si nécessaire,
+joindre aussi le fichier Spotify `.ips` depuis **Réglages iOS → Confidentialité
+et sécurité → Analyse et améliorations → Données d’analyse**. Les rapports MetricKit
+peuvent arriver plus tard. L’export technique peut être examiné avant son partage.
 
 ## Choix des fonctionnalités communes
 

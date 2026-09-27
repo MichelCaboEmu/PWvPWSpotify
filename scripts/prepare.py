@@ -132,6 +132,9 @@ def main():
     change(settings,'            SGFlagRow(@"Companion content", @"ios-feature-lockscreen.companion_content_enabled"),\n        ]),',
            '            SGFlagRow(@"Companion content", @"ios-feature-lockscreen.companion_content_enabled"),\n        ], @"Enables video artwork and Canvas together. Canvas may also appear inside the player."),')
 
+    from prepare_features import apply
+    apply(ROOT, sg, change)
+
     # Updates refer to this combination, never offer an incompatible upstream IPA.
     update=sgs/'App/About/Update.m'
     change(update,'https://spoti.pw/api/update','https://api.github.com/repos/MichelCaboEmu/PWvPWSpotify/releases?per_page=20')

@@ -28,6 +28,13 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
+      - name: Test provider parsing and matching
+        run: |
+          xcrun clang -fobjc-arc -Wall -Wextra -Wno-unused-parameter -framework Foundation \
+            -I overlays/spotipw/Core tests/provider_harness.m \
+            overlays/spotipw/Core/PWProviderSupport.m overlays/spotipw/Core/PWAppleParsing.m \
+            -o /tmp/pw-provider-tests
+          /tmp/pw-provider-tests
       - uses: actions/checkout@v5
         with:
           repository: theos/theos
