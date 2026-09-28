@@ -1,4 +1,4 @@
-// Optional live probe: Blender's public Big Buck Bunny sample, HEAD only, no media retained.
+// Manually requested live probe: Blender's public sample, HEAD only, no media retained.
 import Foundation
 
 extension Bundle {
@@ -19,6 +19,9 @@ extension Bundle {
                                ytcfg: try await video.ytcfg, useOAuth: false, allowCache: false)
         let info = try await client.player(videoID: "aqz-KE-bpKQ")
         print("Provider status: \(info.playabilityStatus?.status ?? "missing"); reason: \(info.playabilityStatus?.reason ?? "none"); streaming data: \(info.streamingData != nil)")
+        guard info.playabilityStatus?.status == "OK" else {
+            throw NSError(domain: "ProviderRefusedPlayback", code: 1)
+        }
         let streams = try await video.streams
         guard let audio = streams.filterAudioOnly().filter({ $0.fileExtension == .m4a }).highestAudioBitrateStream(),
               PWDownloadRules.mediaURL(audio.url) else { throw NSError(domain: "NoLocalAudio", code: 1) }

@@ -12,6 +12,7 @@ private func pwEvent(_ event: String, _ code: Int = 0) {
 }
 private struct PWDownloadError: LocalizedError {
     let message: String
+    var pausesQueue = false
     var errorDescription: String? { message }
 }
 private func pwError(_ message: String) -> PWDownloadError { PWDownloadError(message: message) }
@@ -237,6 +238,14 @@ private final class PWDownloadStore {
                     update(job.id, track.id, state: cancelled ? "pending" : "failed", error: cancelled ? nil : error.localizedDescription)
                     pwEvent(cancelled ? "audio_paused" : "audio_failed", (error as NSError).code)
                     if cancelled { break }
+                    if (error as? PWDownloadError)?.pausesQueue == true {
+                        for index in jobs.indices {
+                            jobs[index].paused = true
+                            jobs[index].lastError = error.localizedDescription
+                        }
+                        changed()
+                        break
+                    }
                 }
             }
         }
@@ -267,7 +276,14 @@ private final class PWDownloadStore {
         try Task.checkCancellation()
         // Explicitly local: YouTubeKit's optional remote service is never enabled.
         let video = YouTube(videoID: candidate.id, methods: [.local])
-        let streams = try await video.streams
+        let streams: [Stream]
+        do { streams = try await video.streams }
+        catch {
+            try Task.checkCancellation()
+            if (error as? URLError)?.code == .cancelled { throw error }
+            pwEvent("local_extraction_failed", (error as NSError).code)
+            throw PWDownloadError(message: "Extraction YouTube indisponible. Le fournisseur peut refuser l’accès ou avoir changé son format. La file est en pause ; exporte les logs depuis les paramètres pour le diagnostic.", pausesQueue: true)
+        }
         guard let stream = streams.filterAudioOnly().filter({ $0.fileExtension == .m4a }).highestAudioBitrateStream(),
               PWDownloadRules.mediaURL(stream.url) else { throw pwError("Aucun flux M4A compatible accessible sur cet iPhone.") }
         // YouTube can require a short interval before allowing the resolved stream.

@@ -100,8 +100,15 @@ puis utiliser à nouveau sa flèche. Les erreurs ont un bouton de reprise.
 - Résultat réel du run `36382811432` : les deux modules compilent, 32 règles de
   téléchargement passent, mais la sonde réseau échoue avec `YouTubeKitError.extractError`.
   Le statut vert était dû à `continue-on-error`, désormais supprimé. Aucun HTTP 200
-  ni téléchargement effectif n’a été validé dans ce run. Une sonde indépendante
-  affiche désormais le statut de lecture renvoyé par YouTube pour préciser la cause.
+  ni téléchargement effectif n’a été validé dans ce run.
+- Le run `36412391053` précise la cause : `LOGIN_REQUIRED`, raison
+  `Sign in to confirm you’re not a bot`, aucune donnée de streaming. L’échec de la
+  sonde est bien signalé. Elle devient manuelle, désactivée par défaut, pour ne pas
+  répéter les demandes depuis ce runner bloqué. Elle s’arrête immédiatement si le
+  fournisseur refuse la lecture, sans essayer un autre client ensuite.
+- Sur iPhone, un échec d’extraction affiche une erreur compréhensible, inscrit
+  `local_extraction_failed` dans les logs sans URL ni identifiant, puis suspend
+  toute la file. Une reprise nécessite une action explicite de l’utilisateur.
 - L’intégration reste expérimentale jusqu’au test sur l’iPhone cible. La compilation
   et les fixtures ne prouvent pas que YouTube autorisera un flux depuis son réseau.
 - L’accès aux métadonnées dépend de Spotify : toutes les pages de playlists ont

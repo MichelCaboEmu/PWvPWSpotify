@@ -32,10 +32,13 @@ PolyForm Strict ne sont pas utilisées.
 
 ## Téléchargement de playlists — expérimental
 
-**Validation réseau non acquise** : la compilation réussit, mais la première sonde
-d’extraction locale a échoué avec `extractError`. Ne pas considérer la fonctionnalité
-comme validée sur appareil. Le workflow distingue désormais la compilation de la sonde
-réseau, dont un échec n’est plus masqué.
+**Validation réseau non acquise** : les deux modules compilent, mais YouTube a
+refusé la sonde du runner GitHub (`LOGIN_REQUIRED`, confirmation anti-robot,
+run `36412391053`). Cela ne préjuge pas du résultat sur iPhone, encore non testé.
+La sonde réseau est désormais manuelle, désactivée par défaut, et son échec reste
+visible. Un workflow de compilation vert ne valide pas le téléchargement.
+En cas d’échec d’extraction, l’app explique l’erreur, inscrit un événement dans
+les logs et met toute la file en pause sans multiplier les demandes suivantes.
 
 **Mod Settings → Téléchargement des playlists** propose **YouTube Music** ou
 **YouTube**, traités localement par YouTubeKit (Swift / JavaScriptCore). Aucun
