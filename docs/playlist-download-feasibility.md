@@ -97,6 +97,11 @@ puis utiliser à nouveau sa flèche. Les erreurs ont un bouton de reprise.
 
 ### Limites de validation et d’usage
 
+- Résultat réel du run `36382811432` : les deux modules compilent, 32 règles de
+  téléchargement passent, mais la sonde réseau échoue avec `YouTubeKitError.extractError`.
+  Le statut vert était dû à `continue-on-error`, désormais supprimé. Aucun HTTP 200
+  ni téléchargement effectif n’a été validé dans ce run. Une sonde indépendante
+  affiche désormais le statut de lecture renvoyé par YouTube pour préciser la cause.
 - L’intégration reste expérimentale jusqu’au test sur l’iPhone cible. La compilation
   et les fixtures ne prouvent pas que YouTube autorisera un flux depuis son réseau.
 - L’accès aux métadonnées dépend de Spotify : toutes les pages de playlists ont
