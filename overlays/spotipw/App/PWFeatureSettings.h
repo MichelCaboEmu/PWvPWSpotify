@@ -2,3 +2,4 @@
 SGModRow *PWDiagnosticsRow(void);
 SGModRow *PWGeniusSettingsRow(void);
 SGModRow *PWArtworkSettingsRow(void);
+SGModRow *PWDownloadsSettingsRow(void);

@@ -1,5 +1,6 @@
 {
   "spotipw": {"repository": "skopevoj/spoti.pw", "commit": "a08b38b9e293f0893e92ff7a9b7b9d92f903431a", "version": "v0.21.1", "license": "GPL-3.0"},
   "eevee": {"repository": "SideloadLabs/EeveeSpotifyReincarnated", "commit": "9a482a83af8d47e53e4746a17a7767599270d1d7", "license": "GPL-3.0"},
+  "youtubekit": {"repository": "alexeichhorn/YouTubeKit", "commit": "e5b7d0396ce12bf3444f0d209e8436c83373b7af", "license": "MIT"},
   "spotify_version": "9.1.78"
 }

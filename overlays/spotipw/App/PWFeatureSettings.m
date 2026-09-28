@@ -4,6 +4,7 @@
 #import "Shared/Player/PWArtworkEngine.h"
 #import "Shared/Player/PWLockScreenArtwork.h"
 #import "Shared/Genius/PWGenius.h"
+#import "Shared/Downloads/PWDownloads.h"
 
 static UIViewController *top(void) {
     UIViewController *result=nil;
@@ -49,6 +50,18 @@ SGModRow *PWDiagnosticsRow(void){
                 SGActionRow(@"Relancer l’animation",@"Essaie Apple Music puis la pochette pour le morceau actuel",^{PWRetryArtwork();})])
         ] footer:@"Les journaux contiennent la version, l’état de lecture technique et les erreurs des fournisseurs, sans jetons ni contenu des paroles. Les rapports de crash reçus d’iOS peuvent inclure des informations techniques sur l’appareil et les piles d’appels. Certains crashs et arrêts mémoire nécessitent le rapport .ips de Réglages iOS → Confidentialité et sécurité → Analyse et améliorations → Données d’analyse. Les rapports iOS peuvent arriver au lancement suivant."];
     }),@"doc.text.magnifyingglass");
+}
+SGModRow *PWDownloadsSettingsRow(void){
+    return SGWithSymbol(SGPageRow(@"Téléchargement des playlists",^UIViewController *{
+        return [[SGModPage alloc] initWithTitle:@"Téléchargements" intro:@"La flèche d’une playlist ouvre la file de fichiers audio. Les nouvelles playlists utilisent la source et le dossier choisis ici." sections:@[
+            SGSection(nil,@[SGChoiceRow(@"Source",nil,PWKeyDownloadSource,@[@"YouTube Music — sur cet iPhone",@"YouTube — sur cet iPhone",@"Téléchargement officiel Spotify"],0),
+                SGActionRow(@"Choisir le dossier",@"Sélectionner un dossier dans Fichiers",^{[PWDownloadsBridge chooseFolderFrom:top()];}),
+                SGStatRow(@"Dossier",^NSString *{return [PWDownloadsBridge folderName];}),
+                SGActionRow(@"Dossier par défaut",@"Spotify Downloads dans les fichiers de Spotify",^{[PWDownloadsBridge resetFolder];}),
+                SGActionRow(@"Voir les téléchargements",nil,^{[PWDownloadsBridge presentFrom:top() playlistURI:nil title:nil authorization:nil];}),
+                SGStatRow(@"État",^NSString *{return [PWDownloadsBridge summary];})])
+        ] footer:@"Les deux sources YouTube utilisent YouTubeKit localement, sans serveur intermédiaire ni abonnement Spotify requis. La disponibilité dépend des fournisseurs et de l’accès à la playlist. Les fichiers M4A sont lisibles dans Fichiers ou une autre app ; ils ne deviennent pas des morceaux hors ligne du lecteur Spotify. Le mode officiel conserve les conditions de Spotify. Garde l’app ouverte pendant le téléchargement. Après fermeture ou suspension, reprends la file ici. Redémarre Spotify après un changement de mode pour actualiser tous les boutons."];
+    }),@"arrow.down.circle");
 }
 SGModRow *PWGeniusSettingsRow(void){
     return SGWithSymbol(SGPageRow(@"Genius — explications",^UIViewController *{

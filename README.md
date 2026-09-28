@@ -30,6 +30,31 @@ PolyForm Strict ne sont pas utilisées.
   Genius, pages Apple sans vidéo, choix HLS, refus des formats non pris en charge,
   domaines autorisés et échappement des recherches.
 
+## Téléchargement de playlists — expérimental
+
+**Mod Settings → Téléchargement des playlists** propose **YouTube Music** ou
+**YouTube**, traités localement par YouTubeKit (Swift / JavaScriptCore). Aucun
+serveur, Python ou FFmpeg n’est nécessaire. Une troisième option conserve le
+téléchargement officiel Spotify. SpotDL et librespot ne sont pas embarqués.
+
+La flèche de la playlist ouvre la file : liste complète récupérée auprès de
+Spotify, recherche du même titre/artiste/durée, puis téléchargement du M4A. Le
+bouton reste accessible sur les playlists d’autrui et le redesign conserve aussi
+Ajouter. Si Spotify omet la flèche, elle est ajoutée dans la rangée du header.
+
+Choisir le dossier avec Fichiers, ou conserver **Spotify Downloads** dans les
+documents de Spotify. Les fichiers existants sont préservés. La file indique les
+erreurs et permet de reprendre ; après fermeture de l’app, elle reste en pause
+jusqu’à une reprise manuelle. Retirer une playlist de la file laisse ses fichiers
+en place. Source et dossier s’appliquent aux prochaines playlists ajoutées.
+
+Ces fichiers sont lisibles dans Fichiers ou une autre application, **pas dans le
+cache hors ligne du lecteur Spotify**. Garde l’app ouverte pendant le traitement.
+L’accès aux playlists et aux flux dépend des fournisseurs ; un refus ou une
+correspondance douteuse produit une erreur visible. Compilation et tests de
+parseurs ne remplacent pas une validation sur l’iPhone cible. Détails et limites :
+[`docs/playlist-download-feasibility.md`](docs/playlist-download-feasibility.md).
+
 ## Vidéos sur l’écran verrouillé (iOS 26)
 
 Dans **Mod Settings → Vidéos de l’écran verrouillé**, choisir la priorité :

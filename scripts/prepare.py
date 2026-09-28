@@ -144,6 +144,8 @@ def main():
     # Inject the complementary module in the same packaging pass as the glass UI.
     pipe=sg/'scripts/pipeline.sh'
     change(pipe,'FILES=("$TWEAK_DEB")','FILES=("$TWEAK_DEB")\nif [ -n "${PW_EEVEE_DEB:-}" ]; then FILES+=("$PW_EEVEE_DEB"); fi')
+    from prepare_downloads import apply as apply_downloads
+    apply_downloads(ROOT, sg, change)
     # Preserve the upstream executable bit when applying copied overlays.
     print('Assembled pinned sources with complementary Eevee activation profile.')
 

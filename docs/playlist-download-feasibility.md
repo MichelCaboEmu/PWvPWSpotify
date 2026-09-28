@@ -56,12 +56,60 @@ l’utilisateur. Il ne sera donc pas ajouté comme dépendance cachée.
 - Les sélecteurs de métadonnées et actions des playlists devront être vérifiés
   dans le binaire 9.1.78. Ne pas déduire la playlist affichée du morceau en lecture.
 
-## État
+## Implémentation locale du 28 septembre
 
-Recherche et points d’intégration documentés. Aucun moteur SpotDL/librespot iOS
-fonctionnel, aucun faux sélecteur de source et aucun remplacement du téléchargement
-natif ne sont livrés à ce stade. Le dossier d’export et le bouton seront raccordés
-après validation du moteur local.
+Après élargissement de la recherche, **YouTubeKit** est retenu : Swift natif,
+JavaScriptCore et URLSession, compatible avec iOS, sous licence MIT. Révision
+`e5b7d0396ce12bf3444f0d209e8436c83373b7af`. Contrairement au portage complet de
+SpotDL, il n’exige ni CPython ni un processus FFmpeg. Le fichier M4A est téléchargé
+directement et vérifié par AVFoundation. Le mode `.local` est explicitement imposé ;
+le service distant facultatif de YouTubeKit n’est jamais activé.
+
+Reverie a servi de piste de recherche, sans reprise de son code. Son extracteur
+active aussi un secours distant et son import HTML ne suffit pas à garantir une
+playlist complète. L’import ici utilise l’API Spotify, avec pagination et contrôle
+du total, via la session de l’application. Le bearer reste uniquement chez Spotify
+et n’est ni journalisé, ni persisté dans la file, ni envoyé à YouTube. Un refus
+401/403/429 reste une erreur visible ; aucun accès payant n’est forcé.
+
+Deux choix locaux sont proposés : recherche de chansons **YouTube Music** ou
+recherche **YouTube**, tous deux extraits par YouTubeKit. Le troisième choix rétablit
+le téléchargement officiel Spotify. Ce ne sont pas des modes SpotDL/librespot.
+
+La flèche native est réutilisée. Si Spotify ne crée aucun bouton sur le header
+gratuit, un bouton de même fonction est ajouté dans sa rangée. Le redesign conserve
+le bouton Ajouter et expose une quatrième commande pour télécharger. Le contexte
+vient du modèle de la page affichée, jamais du morceau en lecture.
+
+Sélecteurs vérifiés dans le Mach-O 9.1.78 fourni :
+`SPTFreeTierPlaylistEncoreHeaderViewController.headerController` (`@16@0:8`) et
+`FTPViewModelImplementation.playlistURL` / `playlistName` (`@16@0:8`). Le getter
+`defaultHeaderViewModel` était déjà utilisé et vérifié par l’upstream. Tous les
+appels vérifient à nouveau présence, nombre d’arguments et type de retour.
+
+La file conserve ses métadonnées dans Application Support. Après redémarrage,
+elle est en pause ; les fichiers terminés sont conservés et les entrées interrompues
+peuvent repartir. Le dossier choisi utilise un bookmark, un accès security-scoped
+et NSFileCoordinator. Les fichiers existants ne sont pas écrasés. Retirer une
+playlist de la file ne supprime pas ses fichiers. La source et le dossier sont
+figés pour chaque playlist ; pour changer une playlist déjà en file, la retirer
+puis utiliser à nouveau sa flèche. Les erreurs ont un bouton de reprise.
+
+### Limites de validation et d’usage
+
+- L’intégration reste expérimentale jusqu’au test sur l’iPhone cible. La compilation
+  et les fixtures ne prouvent pas que YouTube autorisera un flux depuis son réseau.
+- L’accès aux métadonnées dépend de Spotify : toutes les pages de playlists ont
+  la commande, mais certaines playlists peuvent être refusées par l’API.
+- Les résultats sont filtrés par titre, artiste et durée ; reprises, remixes et
+  variantes non demandées sont refusés. Une absence de correspondance est affichée.
+- Les fichiers exportés se lisent dans Fichiers ou une autre app. Ils ne remplissent
+  pas le cache hors ligne du lecteur natif Spotify.
+- Un seul morceau est traité à la fois. iOS peut suspendre la file en arrière-plan ;
+  il faut la reprendre depuis sa page. Il n’y a pas de service d’arrière-plan garanti.
+- Les doublons, épisodes et fichiers locaux sont comptés et ignorés. Limites :
+  50 playlists, 10 000 entrées par playlist, 128 Mo par fichier audio reçu.
+- Les journaux contiennent les étapes et codes d’erreur, sans titre ni URL audio.
 
 ## Sources officielles consultées
 
@@ -72,3 +120,7 @@ après validation du moteur local.
 - https://github.com/librespot-org/librespot/wiki/Audio-Backends
 - https://docs.python.org/3/using/ios.html
 - https://docs.python.org/3/library/intro.html#mobile-platforms
+- https://github.com/alexeichhorn/YouTubeKit
+- https://github.com/alexeichhorn/YouTubeKit/issues/94
+- https://github.com/mhadifilms/Reverie
+- https://developer.spotify.com/documentation/web-api/reference/get-playlist-items

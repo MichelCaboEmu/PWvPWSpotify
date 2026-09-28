@@ -13,6 +13,8 @@ SOURCES=(
   Shared/Player/PWLockScreenArtwork.m Shared/Genius/PWGenius.m
   Shared/LockScreenLyrics/LockScreenLyrics.x App/PWFeatureSettings.m
   Redesigned/Lyrics/SGRKaraokeView.m Native/Lyrics/LyricsPage.x
+  Shared/Downloads/PWDownloadButton.x Native/Playlist/Playlist.x
+  Redesigned/Playlist/PlaylistHeader.x Redesigned/Kit/SGRHeaderInfo.m
 )
 failed=0
 for relative in "${SOURCES[@]}"; do
@@ -32,4 +34,11 @@ for relative in "${SOURCES[@]}"; do
     failed=1
   fi
 done
+# Type-check the actual iOS sources and extractor before the lengthy fusion build.
+SWIFT_SOURCES=()
+while IFS= read -r file; do SWIFT_SOURCES+=("$file"); done < <(find "$SOURCE/Shared/Downloads" -name '*.swift' | sort)
+if ! xcrun --sdk iphoneos swiftc -typecheck -swift-version 5 -target arm64-apple-ios16.0 \
+  -sdk "$SDK" -module-name PWDownloadsCheck "${SWIFT_SOURCES[@]}"; then
+  failed=1
+fi
 exit "$failed"

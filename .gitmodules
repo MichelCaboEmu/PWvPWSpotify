@@ -4,3 +4,6 @@
 [submodule "upstream/eevee"]
     path = upstream/eevee
     url = https://github.com/SideloadLabs/EeveeSpotifyReincarnated.git
+[submodule "upstream/youtubekit"]
+	path = upstream/youtubekit
+	url = https://github.com/alexeichhorn/YouTubeKit.git

@@ -79,7 +79,9 @@ def validate(path, output=False, expected_sha=None):
                 for dep in macho(z.read(full)):
                     if dep.startswith(('/var/jb/','/Library/','@loader_path/.jbroot')):raise ValueError(f'Unresolved jailbreak dependency in {lib}: {dep}')
                     if dep.startswith('@rpath/') and f'{app}/Frameworks/{dep[7:]}' not in names:raise ValueError(f'Missing dependency: {dep}')
-            for item in ['EeveeSpotify.bundle/Info.plist','PlugIns/SpotifyGlassLiveActivity.appex/Info.plist']:
+            for item in ['EeveeSpotify.bundle/Info.plist','PlugIns/SpotifyGlassLiveActivity.appex/Info.plist',
+                         'PWYouTubeKit.bundle/Info.plist','PWYouTubeKit.bundle/meriyah.umd.js',
+                         'PWYouTubeKit.bundle/astring.umd.js','PWYouTubeKit.bundle/yt_ejs_helper.js']:
                 if f'{app}/{item}' not in names:raise ValueError(f'Missing bundled resource: {item}')
             # Swift's renamed protobuf framework must not collide with Spotify's module.
             if f'{app}/Frameworks/EeveeSwiftProtobuf.framework/EeveeSwiftProtobuf' not in names:raise ValueError('Missing EeveeSwiftProtobuf')

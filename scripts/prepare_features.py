@@ -16,7 +16,7 @@ def apply(root,sg,change):
     # Logos hook uses only the documented MediaPlayer API, already present in Spotify.
     page=source/'App/ModSettings.x'
     change(page,'#import "PWEeveeSettings.h"','#import "PWEeveeSettings.h"\n#import "PWFeatureSettings.h"')
-    change(page,'        PWEeveeSettingsRow(),','        PWEeveeSettingsRow(),\n        PWArtworkSettingsRow(),\n        PWGeniusSettingsRow(),\n        PWDiagnosticsRow(),')
+    change(page,'        PWEeveeSettingsRow(),','        PWEeveeSettingsRow(),\n        PWArtworkSettingsRow(),\n        PWGeniusSettingsRow(),\n        PWDownloadsSettingsRow(),\n        PWDiagnosticsRow(),')
     # The redesigned view owns exact lyric lines and their track ID.
     view=source/'Redesigned/Lyrics/SGRKaraokeView.m'
     change(view,'#import "Shared/LyricsSources/LyricsSources.h"',

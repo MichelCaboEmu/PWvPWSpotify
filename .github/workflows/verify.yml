@@ -35,6 +35,10 @@ jobs:
             overlays/spotipw/Core/PWProviderSupport.m overlays/spotipw/Core/PWAppleParsing.m \
             -o /tmp/pw-provider-tests
           /tmp/pw-provider-tests
+      - name: Test playlist parsing and audio matching
+        run: |
+          xcrun swiftc overlays/spotipw/Downloads/PWDownloadParsing.swift tests/download_rules.swift -o /tmp/pw-download-tests
+          /tmp/pw-download-tests
       - uses: actions/checkout@v5
         with:
           repository: theos/theos
