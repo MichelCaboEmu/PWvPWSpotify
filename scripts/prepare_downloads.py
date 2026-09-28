@@ -36,6 +36,16 @@ def apply(root, sg, change):
     values.update(UIFileSharingEnabled=True, LSSupportsOpeningDocumentsInPlace=True)
     plist.write_bytes(plistlib.dumps(values))
 
+    # The existing session observer must also run when every lyrics feature is disabled.
+    lyrics = source / 'Shared/Lyrics/KaraokeSource.x'
+    change(lyrics, '#import "Lyrics.h"', '#import "Lyrics.h"\n#import "Shared/Downloads/PWDownloads.h"')
+    change(lyrics, 'if (!SGRedesignedUI() && !SGFlag(SGKeyLockScreenLyrics, NO) && !SGLyricsEnabled()) return;',
+           'if (!SGRedesignedUI() && !SGFlag(SGKeyLockScreenLyrics, NO) && !SGLyricsEnabled() && !PWDownloadsEnabled()) return;')
+    # Only Spotify hosts may contribute the session credential, including when downloading alone.
+    change(lyrics, 'if (![request.URL.host containsString:@"spclient"]) return;',
+           'NSString *host = request.URL.host.lowercaseString;\n'
+           '    if (![host hasSuffix:@".spotify.com"] || ![host containsString:@"spclient"]) return;')
+
     native = source / 'Native/Playlist/Playlist.x'
     change(native, '#import "Playlist.h"', '#import "Playlist.h"\n#import "Shared/Downloads/PWDownloads.h"')
     change(native, '            if (identNamed(action, buttons[i].ident)) hide(action, buttons[i].key);',

@@ -12,7 +12,7 @@ static id objectGetter(id object, NSString *name) {
     SEL sel=NSSelectorFromString(name);
     if (![object respondsToSelector:sel]) return nil;
     NSMethodSignature *signature=[object methodSignatureForSelector:sel];
-    if (signature.numberOfArguments!=2 || signature.methodReturnType[0]!='@') return nil;
+    if (!signature || signature.numberOfArguments!=2 || signature.methodReturnType[0]!='@') return nil;
     return ((id(*)(id,SEL))objc_msgSend)(object,sel);
 }
 static id modelFor(UIView *view) {

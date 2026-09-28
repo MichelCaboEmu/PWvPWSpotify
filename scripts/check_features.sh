@@ -14,6 +14,7 @@ SOURCES=(
   Shared/LockScreenLyrics/LockScreenLyrics.x App/PWFeatureSettings.m
   Redesigned/Lyrics/SGRKaraokeView.m Native/Lyrics/LyricsPage.x
   Shared/Downloads/PWDownloadButton.x Native/Playlist/Playlist.x
+  Shared/Lyrics/KaraokeSource.x
   Redesigned/Playlist/PlaylistHeader.x Redesigned/Kit/SGRHeaderInfo.m
 )
 failed=0

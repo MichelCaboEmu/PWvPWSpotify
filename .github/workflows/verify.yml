@@ -49,5 +49,16 @@ jobs:
         run: brew install make dpkg ldid
       - name: Check changed iOS sources before Swift build
         run: bash scripts/check_features.sh
+      - name: Probe local extractor from CI network (not an iPhone validation)
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          SOURCES=()
+          while IFS= read -r file; do SOURCES+=("$file"); done < <(find build/spotipw/tweak/Sources/Shared/Downloads/YouTubeKit -name '*.swift' | sort)
+          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos13.0" "${SOURCES[@]}" overlays/spotipw/Downloads/PWDownloadParsing.swift tests/extractor_smoke.swift -o /tmp/pw-extractor-smoke
+          python3 - <<'PY'
+          import subprocess
+          subprocess.run(['/tmp/pw-extractor-smoke', 'build/spotipw/PWYouTubeKit.bundle'], timeout=75, check=True)
+          PY
       - name: Compile both modules (no IPA)
         run: bash scripts/build.sh --compile-check
