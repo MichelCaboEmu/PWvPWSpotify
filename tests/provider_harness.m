@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import "PWProviderSupport.h"
 #import "PWAppleParsing.h"
+#import "PWArtworkPolicy.h"
 
 static NSUInteger checks;
 static void check(BOOL condition, NSString *message) {
@@ -24,7 +25,7 @@ int main(void) {
         }
         NSURL *base = [NSURL URLWithString:@"https://mvod.itunes.apple.com/album/master.m3u8"];
         NSString *master = @"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=50,CODECS=\"hvc1\",RESOLUTION=480x640\nhevc.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=100,CODECS=\"avc1.64001f\",RESOLUTION=480x640,VIDEO-RANGE=SDR\nclear.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=200,CODECS=\"avc1.64001f\",RESOLUTION=810x1080\nbig.m3u8\n";
-        check([PWAppleVariant(master,base).lastPathComponent isEqualToString:@"clear.m3u8"], @"select a suitable AVC variant");
+        check([PWAppleVariant(master,base).lastPathComponent isEqualToString:@"big.m3u8"], @"select a sharp AVC variant");
         check(!PWAppleVariant(@"not a playlist",base), @"invalid master rejected");
         NSString *media = @"#EXTM3U\n#EXT-X-MAP:URI=\"video.mp4\",BYTERANGE=\"123@0\"\n#EXTINF:2,\n#EXT-X-BYTERANGE:1000@123\nvideo.mp4\n#EXTINF:2,\n#EXT-X-BYTERANGE:1000@1123\nvideo.mp4\n#EXT-X-ENDLIST\n";
         check([PWAppleSingleFile(media,base).lastPathComponent isEqualToString:@"video.mp4"], @"clear single-file byte ranges");
@@ -47,6 +48,16 @@ int main(void) {
         NSURL *query = PWQueryURL(@"https://api.genius.com/search",@{@"q":@"A&B + #é"});
         check([NSURLComponents componentsWithURL:query resolvingAgainstBaseURL:NO].queryItems.firstObject.value != nil, @"query generated");
         check([[NSURLComponents componentsWithURL:query resolvingAgainstBaseURL:NO].queryItems.firstObject.value isEqualToString:@"A&B + #é"], @"query characters round trip");
+        check(PWChooseArtwork(0,YES,YES,YES)==PWArtworkSourceSpotify, @"Spotify first with every fallback ready");
+        check(PWChooseArtwork(0,NO,YES,YES)==PWArtworkSourceApple, @"Apple before generated cover");
+        check(PWChooseArtwork(0,NO,NO,NO)==PWArtworkSourceNone, @"do not publish an unready placeholder");
+        check(PWChooseArtwork(0,NO,NO,YES)==PWArtworkSourceGenerated, @"cover only without video");
+        check(PWChooseArtwork(0,YES,NO,YES)==PWArtworkSourceSpotify, @"late Spotify replaces the generated cover");
+        check(PWChooseArtwork(1,YES,YES,YES)==PWArtworkSourceApple, @"Apple priority only once ready");
+        check(PWChooseArtwork(1,YES,NO,YES)==PWArtworkSourceSpotify, @"Apple failure keeps Spotify before cover");
+        check(PWChooseArtwork(2,YES,YES,YES)==PWArtworkSourceGenerated, @"explicit cover-only mode");
+        check(PWChooseArtwork(3,NO,YES,YES)==PWArtworkSourceNone, @"Spotify-only has no foreign fallback");
+        check(PWChooseArtwork(3,YES,YES,YES)==PWArtworkSourceSpotify, @"Spotify-only preserves native video");
         NSLog(@"PASS: %lu provider checks", (unsigned long)checks);
     }
     return 0;

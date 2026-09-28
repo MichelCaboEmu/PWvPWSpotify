@@ -21,7 +21,7 @@ static void normalizeVideo(NSURL *source, NSURL *destination, void (^done)(NSURL
             dispatch_async(dispatch_get_main_queue(), ^{ done(nil, nil); }); return;
         }
         // Exact 3:4 output, regardless of the source's rounding (e.g. 486x648).
-        CGSize target = CGSizeMake(480, 640);
+        CGSize target = CGSizeMake(720, 960);
         CGRect bounds = CGRectApplyAffineTransform((CGRect){CGPointZero, track.naturalSize}, track.preferredTransform);
         if (!isfinite(bounds.size.width) || !isfinite(bounds.size.height) || fabs(bounds.size.width) < 1 || fabs(bounds.size.height) < 1) {
             [NSFileManager.defaultManager removeItemAtURL:source error:nil];
@@ -37,7 +37,7 @@ static void normalizeVideo(NSURL *source, NSURL *destination, void (^done)(NSURL
         instruction.timeRange = CMTimeRangeMake(kCMTimeZero, asset.duration); instruction.layerInstructions = @[layer];
         AVMutableVideoComposition *composition = [AVMutableVideoComposition videoComposition];
         composition.renderSize = target; composition.frameDuration = CMTimeMake(1, 30); composition.instructions = @[instruction];
-        AVAssetExportSession *exporter = [[AVAssetExportSession alloc] initWithAsset:asset presetName:AVAssetExportPresetMediumQuality];
+        AVAssetExportSession *exporter = [[AVAssetExportSession alloc] initWithAsset:asset presetName:AVAssetExportPresetHighestQuality];
         if (!exporter) { [NSFileManager.defaultManager removeItemAtURL:source error:nil];
             dispatch_async(dispatch_get_main_queue(), ^{ done(nil, nil); }); return; }
         exporter.outputURL = destination; exporter.outputFileType = AVFileTypeMPEG4; exporter.videoComposition = composition;

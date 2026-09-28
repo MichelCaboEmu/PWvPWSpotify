@@ -42,21 +42,27 @@ private final class PWDownloadHTTP: NSObject, URLSessionTaskDelegate {
         guard let url = request.url, url.scheme == "https", url.user == nil, url.password == nil else { completionHandler(nil); return }
         completionHandler((host != nil ? url.host == host : PWDownloadRules.mediaURL(url)) ? request : nil)
     }
-    func json(_ request: URLRequest) async throws -> [String: Any] {
-        let (data, response) = try await session.data(for: request)
+    func data(_ request: URLRequest, stage: PWDownloadStage, maximum: Int = 12 * 1024 * 1024) async throws -> Data {
+        let data: Data, response: URLResponse
+        do { (data, response) = try await session.data(for: request) }
+        catch { pwEvent(stage.rawValue + "_network", (error as NSError).code); throw error }
         guard let http = response as? HTTPURLResponse else { throw pwError("Réponse réseau invalide.") }
         guard http.statusCode == 200 else {
-            pwEvent("metadata_http", http.statusCode)
-            if http.statusCode == 401 { throw pwError("La session Spotify a expiré. Relance une chanson puis réessaie.") }
-            if http.statusCode == 403 { throw pwError("Le fournisseur refuse l’accès à cette playlist ou à cette recherche.") }
-            if http.statusCode == 429 { throw pwError("Trop de demandes. Attends quelques minutes avant de reprendre.") }
-            throw pwError("Réponse du fournisseur : HTTP \(http.statusCode).")
+            pwEvent(stage.rawValue + "_http", http.statusCode)
+            throw PWDownloadHTTPError(stage: stage, status: http.statusCode)
         }
-        guard data.count < 12 * 1024 * 1024, let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw pwError("La réponse du fournisseur est trop grande ou a changé de format.")
+        guard data.count < maximum else { throw pwError("La réponse du fournisseur est trop grande.") }
+        return data
+    }
+    func json(_ request: URLRequest, stage: PWDownloadStage) async throws -> [String: Any] {
+        let bytes = try await data(request, stage: stage)
+        guard let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] else {
+            pwEvent(stage.rawValue + "_invalid_json")
+            throw pwError("La réponse du fournisseur a changé de format.")
         }
         return object
     }
+
 }
 
 private struct PWDownloadItem: Codable {
@@ -128,6 +134,7 @@ private final class PWDownloadStore {
     private let music = PWDownloadHTTP(host: "music.youtube.com")
     private let youtube = PWDownloadHTTP(host: "www.youtube.com")
     private let media = PWDownloadHTTP(host: nil)
+    private var searchConfigs: [Int: (Date, PWYouTubeSearchConfig)] = [:]
     private var stateURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PWDownloads", isDirectory: true).appendingPathComponent("queue.json")
@@ -162,20 +169,35 @@ private final class PWDownloadStore {
             defer { importing = false; importer = nil; changed() }
             do {
                 var tracks: [PWAudioTrack] = [], read = 0, total: Int?, offset = 0
-                var endpoint = path
+                var endpoint = path, triedDocument = false
                 while true {
                     try Task.checkCancellation()
                     var request = URLRequest(url: URL(string: "https://api.spotify.com\(endpoint)?limit=50&offset=\(offset)")!)
                     request.setValue(authorization, forHTTPHeaderField: "Authorization")
                     var page: [String: Any]
-                    do { page = try await spotify.json(request) }
-                    catch {
-                        // Older Spotify clients still expose /tracks. Only retry an absent /items endpoint.
-                        if endpoint.hasSuffix("/items"), error.localizedDescription.contains("HTTP 404") {
+                    let stage: PWDownloadStage = endpoint == "/v1/me/tracks" ? .spotifySaved : endpoint.hasSuffix("/items") ? .spotifyItems : .spotifyTracks
+                    do { page = try await spotify.json(request, stage: stage) }
+                    catch let error as PWDownloadHTTPError where error.status == 404 && error.stage.spotify {
+                        // Support both documented API generations; never retry an access denial.
+                        if endpoint.hasSuffix("/items"), !triedDocument {
                             endpoint = String(endpoint.dropLast(6)) + "/tracks"
-                            continue
+                            pwEvent("spotify_try_legacy_items"); continue
                         }
-                        throw error
+                        guard offset == 0, endpoint.hasPrefix("/v1/playlists/"), !triedDocument else { throw error }
+                        triedDocument = true
+                        let rootPath = String(endpoint.dropLast(7))
+                        var rootRequest = URLRequest(url: URL(string: "https://api.spotify.com" + rootPath)!)
+                        rootRequest.setValue(authorization, forHTTPHeaderField: "Authorization")
+                        let document = try await spotify.json(rootRequest, stage: .spotifyDocument)
+                        if let embedded = document["items"] as? [String: Any] {
+                            page = embedded; endpoint = rootPath + "/items"
+                        } else if let embedded = document["tracks"] as? [String: Any] {
+                            page = embedded; endpoint = rootPath + "/tracks"
+                        } else {
+                            pwEvent("spotify_items_not_exposed")
+                            throw pwError("Spotify n’expose pas les morceaux de cette playlist à cette session. La recherche YouTube n’a pas démarré.")
+                        }
+                        pwEvent("spotify_embedded_items")
                     }
                     guard let items = page["items"] as? [[String: Any]], let reported = page["total"] as? Int,
                           reported >= 0, reported <= 10000 else { throw pwError("La liste des morceaux est incomplète ou dépasse 10 000 titres.") }
@@ -238,7 +260,7 @@ private final class PWDownloadStore {
                     update(job.id, track.id, state: cancelled ? "pending" : "failed", error: cancelled ? nil : error.localizedDescription)
                     pwEvent(cancelled ? "audio_paused" : "audio_failed", (error as NSError).code)
                     if cancelled { break }
-                    if (error as? PWDownloadError)?.pausesQueue == true {
+                    if (error as? PWDownloadError)?.pausesQueue == true || error is PWDownloadHTTPError {
                         for index in jobs.indices {
                             jobs[index].paused = true
                             jobs[index].lastError = error.localizedDescription
@@ -263,12 +285,28 @@ private final class PWDownloadStore {
         var request = URLRequest(url: URL(string: "https://\(host)/youtubei/v1/search")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var body: [String: Any] = ["query": track.title + " " + track.artist,
-                                   "context": ["client": ["clientName": isMusic ? "WEB_REMIX" : "WEB",
-                                                          "clientVersion": isMusic ? "1.20250922.03.00" : "2.20250922.01.00", "hl": "en"]]]
+        let client = isMusic ? music : youtube
+        let configuration: PWYouTubeSearchConfig
+        if let cached = searchConfigs[source], Date().timeIntervalSince(cached.0) < 3600 {
+            configuration = cached.1
+        } else {
+            let page = try await client.data(URLRequest(url: URL(string: "https://\(host)/")!),
+                                             stage: isMusic ? .youtubeMusicConfig : .youtubeConfig, maximum: 4 * 1024 * 1024)
+            guard let html = String(data: page, encoding: .utf8), let config = PWYouTubeSearchConfig.parse(html, music: isMusic) else {
+                pwEvent(isMusic ? "youtube_music_config_missing" : "youtube_config_missing")
+                throw PWDownloadError(message: "La configuration publique de YouTube est indisponible. La file est en pause ; exporte les logs pour le diagnostic.", pausesQueue: true)
+            }
+            searchConfigs[source] = (Date(), config); configuration = config
+        }
+        request.setValue(configuration.clientNumber, forHTTPHeaderField: "X-YouTube-Client-Name")
+        request.setValue(configuration.version, forHTTPHeaderField: "X-YouTube-Client-Version")
+        request.setValue("https://\(host)", forHTTPHeaderField: "Origin")
+        var body: [String: Any] = ["query": track.title + " " + track.artist, "context": configuration.context]
         if isMusic { body["params"] = "EgWKAQIIAWoKEAkQBRAKEAMQBA==" }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let json = try await (isMusic ? music : youtube).json(request)
+        let json: [String: Any]
+        do { json = try await client.json(request, stage: isMusic ? .youtubeMusicSearch : .youtubeSearch) }
+        catch { searchConfigs.removeValue(forKey: source); throw error }
         let candidates = PWDownloadRules.candidates(json, music: isMusic).compactMap { candidate -> (PWAudioCandidate, Int)? in
             PWDownloadRules.score(candidate, for: track).map { (candidate, $0) }
         }.sorted { $0.1 > $1.1 }
@@ -403,7 +441,7 @@ private final class PWDownloadQueueController: UITableViewController {
         let job = store.jobs[indexPath.section - 1]
         if indexPath.row == 0 {
             cell.textLabel?.text = "Reprendre / réessayer les erreurs"
-            cell.detailTextLabel?.text = job.paused ? "En pause" : "Les morceaux déjà enregistrés sont conservés."
+            cell.detailTextLabel?.text = job.lastError ?? (job.paused ? "En pause" : "Les morceaux déjà enregistrés sont conservés.")
             cell.imageView?.image = UIImage(systemName: "arrow.clockwise"); return cell
         }
         let item = job.items[indexPath.row - 1]

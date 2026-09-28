@@ -34,11 +34,34 @@ PolyForm Strict ne sont pas utilisées.
 
 **Validation réseau non acquise** : les deux modules compilent, mais YouTube a
 refusé la sonde du runner GitHub (`LOGIN_REQUIRED`, confirmation anti-robot,
-run `36412391053`). Cela ne préjuge pas du résultat sur iPhone, encore non testé.
+run `36412391053`). Un essai utilisateur sur iPhone a depuis signalé un HTTP 404
+avec les deux sources. L'ancien événement `metadata_http` ne permet pas de savoir
+si l'échec vient de la liste Spotify ou de la recherche YouTube.
 La sonde réseau est désormais manuelle, désactivée par défaut, et son échec reste
 visible. Un workflow de compilation vert ne valide pas le téléchargement.
 En cas d’échec d’extraction, l’app explique l’erreur, inscrit un événement dans
 les logs et met toute la file en pause sans multiplier les demandes suivantes.
+
+Les corrections distinguent désormais chaque étape (`spotify_playlist_items_http`,
+`spotify_playlist_tracks_http`, `spotify_playlist_document_http`,
+`youtube_music_config_http`, `youtube_music_search_http`, `youtube_config_http`,
+`youtube_search_http`). Une playlist non accessible n'est plus présentée comme une
+erreur YouTube. Un 404 accepte les formes documentées items/tracks et, en dernier
+recours, la page de morceaux incluse dans la fiche de playlist ; un refus 403
+n'est pas contourné. La configuration de recherche est lue sur la page publique
+du fournisseur, sans numéro de client périmé fixé dans le code.
+
+### Corrections du 28 septembre
+
+- Vidéos : priorité Spotify conservée lors des rafraîchissements de métadonnées,
+  délai de six secondes avant de chercher un secours, publication uniquement
+  lorsque l'asset est prêt. Une vidéo Spotify arrivée ensuite reprend sa place.
+  « Relancer » respecte la priorité. Les logs indiquent la source sélectionnée.
+- Qualité : secours en 720 × 960 et refus d'agrandir une vignette de moins de
+  512 pixels ; les vidéos Apple conservent une variante AVC de meilleure qualité.
+- Genius : panneau sombre aux couleurs de spoti.pw, citation en verre, texte
+  sélectionnable et accès à la source. L'utilisateur confirme le fonctionnement
+  des annotations ; le nouveau rendu reste à vérifier sur appareil.
 
 **Mod Settings → Téléchargement des playlists** propose **YouTube Music** ou
 **YouTube**, traités localement par YouTubeKit (Swift / JavaScriptCore). Aucun

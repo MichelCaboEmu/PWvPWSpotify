@@ -61,6 +61,19 @@ enum DownloadTests {
         check(PWDownloadRules.tracks([["track": local]]).isEmpty, "local track excluded")
         var episode = item; episode["type"] = "episode"
         check(PWDownloadRules.tracks([["item": episode]]).isEmpty, "podcast excluded")
+        let config: [String: Any] = ["INNERTUBE_CONTEXT": ["client": ["clientName": "WEB", "clientVersion": "2.20260928.01.00", "note": "A } brace and \"quote\""]]]
+        let encoded = String(data: try! JSONSerialization.data(withJSONObject: config), encoding: .utf8)!
+        let html = "<script>ytcfg.set({\"OTHER\":1});ytcfg.set(" + encoded + ");</script>"
+        check(PWYouTubeSearchConfig.parse(html, music: false)?.version == "2.20260928.01.00", "current client config with escaped strings")
+        check(PWYouTubeSearchConfig.parse(html, music: false)?.clientNumber == "1", "YouTube client header")
+        check(PWYouTubeSearchConfig.parse(html, music: true) == nil, "reject wrong service config")
+        let musicHTML = html.replacingOccurrences(of: "WEB", with: "WEB_REMIX")
+        check(PWYouTubeSearchConfig.parse(musicHTML, music: true)?.clientNumber == "67", "Music client header")
+        check(PWYouTubeSearchConfig.parse("<html>Sign in</html>", music: false) == nil, "do not treat a sign-in wall as config")
+        check(PWYouTubeSearchConfig.parse("ytcfg.set({broken)", music: false) == nil, "reject partial config")
+        check(PWDownloadHTTPError(stage: .spotifyItems, status: 404).localizedDescription.contains("n’a pas démarré"), "attribute playlist 404 to Spotify before YouTube")
+        check(PWDownloadHTTPError(stage: .youtubeMusicSearch, status: 404).localizedDescription.contains("YouTube Music"), "attribute Music 404 correctly")
+        check(PWDownloadHTTPError(stage: .youtubeSearch, status: 401).localizedDescription.contains("YouTube"), "YouTube error never asks to renew Spotify session")
         print("PASS: \(count) download rules")
     }
 }

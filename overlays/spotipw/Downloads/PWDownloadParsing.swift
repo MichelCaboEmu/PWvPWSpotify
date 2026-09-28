@@ -15,6 +15,72 @@ struct PWAudioCandidate {
     var duration: Double
 }
 
+// Stage names are fixed labels: logs never include a title, playlist ID or token.
+enum PWDownloadStage: String {
+    case spotifyItems = "spotify_playlist_items", spotifyTracks = "spotify_playlist_tracks"
+    case spotifyDocument = "spotify_playlist_document", spotifySaved = "spotify_saved_tracks"
+    case youtubeMusicConfig = "youtube_music_config", youtubeConfig = "youtube_config"
+    case youtubeMusicSearch = "youtube_music_search", youtubeSearch = "youtube_search"
+    var spotify: Bool { rawValue.hasPrefix("spotify_") }
+}
+struct PWDownloadHTTPError: LocalizedError {
+    let stage: PWDownloadStage
+    let status: Int
+    var errorDescription: String? {
+        if stage.spotify {
+            switch status {
+            case 401: return "La session Spotify a expiré. Relance une chanson puis réessaie."
+            case 403: return "Spotify refuse l’accès aux morceaux de cette playlist (HTTP 403). La recherche YouTube n’a pas démarré."
+            case 404: return "Spotify ne trouve pas cette playlist ou n’en expose pas les morceaux (HTTP 404). La recherche YouTube n’a pas démarré."
+            default: return "Chargement de la playlist Spotify : HTTP \(status)."
+            }
+        }
+        let service = stage.rawValue.hasPrefix("youtube_music") ? "YouTube Music" : "YouTube"
+        if status == 429 { return "\(service) limite les demandes (HTTP 429). La file est en pause ; réessaie plus tard." }
+        return "\(service) : requête refusée ou indisponible (HTTP \(status), étape \(stage.rawValue)). Exporte les logs pour le diagnostic."
+    }
+}
+struct PWYouTubeSearchConfig {
+    let context: [String: Any]
+    let version: String
+    let clientNumber: String
+    static func parse(_ html: String, music: Bool) -> PWYouTubeSearchConfig? {
+        var config: [String: Any] = [:]
+        // ytcfg.set can contain nested objects and braces inside quoted strings.
+        // Decode the JSON without evaluating scripts from the remote page.
+        for part in html.components(separatedBy: "ytcfg.set(").dropFirst() {
+            let chars = Array(part.prefix(512000))
+            var depth = 0, quoted = false, escaped = false, start: Int?
+            for (i, char) in chars.enumerated() {
+                if start == nil { if char == "{" { start = i; depth = 1 }; continue }
+                if quoted {
+                    if escaped { escaped = false }
+                    else if char == "\\" { escaped = true }
+                    else if char == "\"" { quoted = false }
+                    continue
+                }
+                if char == "\"" { quoted = true }
+                else if char == "{" { depth += 1 }
+                else if char == "}" { depth -= 1 }
+                if depth == 0, let begin = start {
+                    if let data = String(chars[begin...i]).data(using: .utf8),
+                       let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        config.merge(object) { _, new in new }
+                    }
+                    break
+                }
+            }
+        }
+        guard let context = config["INNERTUBE_CONTEXT"] as? [String: Any],
+              let client = context["client"] as? [String: Any],
+              client["clientName"] as? String == (music ? "WEB_REMIX" : "WEB"),
+              let version = client["clientVersion"] as? String, !version.isEmpty, version.count < 80,
+              version.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || $0 == "." || $0 == "_" || $0 == "-" }) else { return nil }
+        // Keep only the public client description, not unrelated page state.
+        return PWYouTubeSearchConfig(context: ["client": client], version: version, clientNumber: music ? "67" : "1")
+    }
+}
+
 enum PWDownloadRules {
     static func identifier(_ text: String, length: Int) -> Bool {
         text.count == length && text.unicodeScalars.allSatisfy {

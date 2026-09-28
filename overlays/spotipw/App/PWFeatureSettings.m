@@ -47,7 +47,7 @@ SGModRow *PWDiagnosticsRow(void){
                 SGActionRow(@"Marquer un problème maintenant",@"Ajoute un repère à retrouver dans le journal",^{PWEvent(@"user",@"problem_marker",0);notice(@"Repère ajouté",@"Tu peux maintenant exporter les logs.");}),
                 SGActionRow(@"Effacer les journaux",nil,^{PWClearDiagnostics();notice(@"Journaux effacés",@"Les prochains événements seront enregistrés.");})]),
             SGSection(@"Animation",@[SGStatRow(@"Source / état",^NSString *{return PWArtworkEngineStatus();}),
-                SGActionRow(@"Relancer l’animation",@"Essaie Apple Music puis la pochette pour le morceau actuel",^{PWRetryArtwork();})])
+                SGActionRow(@"Relancer l’animation",@"Réessaie en respectant la priorité choisie",^{PWRetryArtwork();})])
         ] footer:@"Les journaux contiennent la version, l’état de lecture technique et les erreurs des fournisseurs, sans jetons ni contenu des paroles. Les rapports de crash reçus d’iOS peuvent inclure des informations techniques sur l’appareil et les piles d’appels. Certains crashs et arrêts mémoire nécessitent le rapport .ips de Réglages iOS → Confidentialité et sécurité → Analyse et améliorations → Données d’analyse. Les rapports iOS peuvent arriver au lancement suivant."];
     }),@"doc.text.magnifyingglass");
 }

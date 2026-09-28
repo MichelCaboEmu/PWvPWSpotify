@@ -8,7 +8,7 @@ SOURCE="$ROOT/build/spotipw/tweak/Sources"
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 STAGE="$(mktemp -d)"
 SOURCES=(
-  Core/PWAppleParsing.m Core/PWProviderSupport.m Core/PWDiagnostics.m
+  Core/PWAppleParsing.m Core/PWProviderSupport.m Core/PWDiagnostics.m Core/PWArtworkPolicy.m
   Shared/Player/PWAppleArtwork.m Shared/Player/PWArtworkEngine.x
   Shared/Player/PWLockScreenArtwork.m Shared/Genius/PWGenius.m
   Shared/LockScreenLyrics/LockScreenLyrics.x App/PWFeatureSettings.m

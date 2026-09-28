@@ -52,7 +52,7 @@ def apply(root,sg,change):
     lyrics=source/'Shared/LockScreenLyrics/LockScreenLyrics.x'
     change(lyrics,'static BOOL sg_resending;','static _Thread_local BOOL sg_resending;')
     change(lyrics,'    shown[MPMediaItemPropertyArtist] = line;',
-           '    shown[@"pw.originalArtist"] = info[MPMediaItemPropertyArtist] ?: @"";\n    shown[MPMediaItemPropertyArtist] = line;')
+           '    shown[@"pw.originalArtist"] = info[@"pw.originalArtist"] ?: info[MPMediaItemPropertyArtist] ?: @"";\n    shown[MPMediaItemPropertyArtist] = line;')
     change(lyrics,'''    sg_shownLine = line;
     sg_resending = YES;
     MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = line ? withLine(info, line, elapsed) : info;

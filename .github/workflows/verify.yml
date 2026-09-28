@@ -39,7 +39,7 @@ jobs:
         run: |
           xcrun clang -fobjc-arc -Wall -Wextra -Wno-unused-parameter -framework Foundation \
             -I overlays/spotipw/Core tests/provider_harness.m \
-            overlays/spotipw/Core/PWProviderSupport.m overlays/spotipw/Core/PWAppleParsing.m \
+            overlays/spotipw/Core/PWProviderSupport.m overlays/spotipw/Core/PWAppleParsing.m overlays/spotipw/Core/PWArtworkPolicy.m \
             -o /tmp/pw-provider-tests
           /tmp/pw-provider-tests
       - name: Test playlist parsing and audio matching

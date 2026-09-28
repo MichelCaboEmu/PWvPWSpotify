@@ -48,7 +48,7 @@ NSURL *PWAppleVariant(NSString *playlist, NSURL *base) {
         NSInteger height = [size[1] integerValue]; if (height > 1080 || height < 200) continue;
         NSString *next = [lines[i + 1] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         NSURL *url = [NSURL URLWithString:next relativeToURL:base].absoluteURL;
-        NSInteger score = labs(height - 640);
+        NSInteger score = labs(height - 960);
         if (PWAllowedAppleURL(url) && score < bestScore) { best = url; bestScore = score; }
     }
     return best;
