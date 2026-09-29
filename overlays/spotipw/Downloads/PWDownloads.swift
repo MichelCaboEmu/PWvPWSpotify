@@ -98,7 +98,8 @@ private actor PWDownloadFiles {
         let root = try Self.root(for: job)
         let scoped = root.startAccessingSecurityScopedResource()
         defer { if scoped { root.stopAccessingSecurityScopedResource() } }
-        if job.folder != nil && !scoped { throw pwError("Accès au dossier refusé. Choisis à nouveau le dossier dans Fichiers.") }
+        // A URL inside our container needs no security scope. The coordinated write
+        // below is the authority on access; false alone is not a write failure.
         let folder = root.appendingPathComponent("Playlist-" + job.id, isDirectory: true)
         var coordinationError: NSError?, operationError: Error?, name: String?
         NSFileCoordinator().coordinate(writingItemAt: folder, options: .forMerging, error: &coordinationError) { granted in
@@ -156,11 +157,22 @@ private final class PWDownloadStore {
         } catch { pwEvent("queue_save_failed", (error as NSError).code) }
         NotificationCenter.default.post(name: pwChanged, object: nil)
     }
-    func importPlaylist(uri: String, title: String, authorization: String) {
+    func importPlaylist(uri: String, title: String, authorization: String, native: PWNativePlaylist? = nil) {
         if jobs.contains(where: { $0.uri == uri }) { return }
         guard !importing else { importError = "Une autre playlist est déjà en cours de chargement."; changed(); return }
         guard jobs.count < 50 else { importError = "La file contient 50 playlists. Retire une ancienne playlist de la liste."; changed(); return }
         guard let path = PWDownloadRules.playlistPath(uri) else { importError = "Cette page n’est pas une playlist compatible."; changed(); return }
+        if let native = native, native.complete {
+            var seen = Set<String>()
+            let unique = native.tracks.filter { seen.insert($0.id).inserted }
+            guard !unique.isEmpty else { importError = "Aucun morceau audio pris en charge dans cette playlist."; changed(); return }
+            jobs.append(PWDownloadJob(uri: uri, title: title, source: min(UserDefaults.standard.integer(forKey: pwSourceKey), 1),
+                                      folder: UserDefaults.standard.data(forKey: pwFolderKey),
+                                      items: unique.map { PWDownloadItem(track: $0) }, skipped: native.total - unique.count))
+            importError = nil; pwEvent("playlist_native_loaded", native.total)
+            pwEvent("playlist_queued", unique.count); changed(); start(); return
+        }
+        pwEvent(native == nil ? "playlist_native_unavailable" : "playlist_native_incomplete", native?.total ?? 0)
         guard authorization.hasPrefix("Bearer ") else { importError = "Lance une chanson pour initialiser la session Spotify, puis réessaie la flèche."; changed(); return }
         importing = true; importError = nil; changed()
         let source = UserDefaults.standard.integer(forKey: pwSourceKey)
@@ -215,7 +227,12 @@ private final class PWDownloadStore {
                                           items: unique.map { PWDownloadItem(track: $0) }, skipped: read - unique.count))
                 pwEvent("playlist_queued", unique.count); changed(); start()
             } catch is CancellationError { importError = "Chargement annulé." }
-            catch { importError = error.localizedDescription; pwEvent("playlist_failed", (error as NSError).code) }
+            catch {
+                if let http = error as? PWDownloadHTTPError, http.status == 404, let problem = native?.problem {
+                    importError = problem + " L’API Spotify renvoie aussi HTTP 404."
+                } else { importError = error.localizedDescription }
+                pwEvent("playlist_failed", (error as NSError).code)
+            }
         }
     }
     func pauseAll() {
@@ -359,6 +376,7 @@ private final class PWDownloadStore {
 @objc(PWDownloadsBridge)
 final class PWDownloadsBridge: NSObject, UIDocumentPickerDelegate {
     private static let pickerDelegate = PWDownloadsBridge()
+    private weak var folderPresenter: UIViewController?
     @objc static var folderName: String { UserDefaults.standard.string(forKey: "spotifyglass.download.folderName") ?? "Sur mon iPhone / Spotify / Spotify Downloads" }
     @objc static var summary: String {
         let store = PWDownloadStore.shared
@@ -368,9 +386,14 @@ final class PWDownloadsBridge: NSObject, UIDocumentPickerDelegate {
     }
     @objc(presentFrom:playlistURI:title:authorization:)
     static func present(from controller: UIViewController, playlistURI: String?, title: String?, authorization: String?) {
+        present(from: controller, playlistURI: playlistURI, title: title, authorization: authorization, nativeModel: nil)
+    }
+    @objc(presentFrom:playlistURI:title:authorization:nativeModel:)
+    static func present(from controller: UIViewController, playlistURI: String?, title: String?, authorization: String?, nativeModel: AnyObject?) {
         let vc = PWDownloadQueueController(style: .insetGrouped)
         if let uri = playlistURI {
-            PWDownloadStore.shared.importPlaylist(uri: uri, title: title ?? "Playlist", authorization: authorization ?? "")
+            let native = nativeModel.flatMap { PWNativePlaylist.read(header: $0, requestedURI: uri) }
+            PWDownloadStore.shared.importPlaylist(uri: uri, title: title ?? "Playlist", authorization: authorization ?? "", native: native)
         }
         let navigation = UINavigationController(rootViewController: vc)
         navigation.overrideUserInterfaceStyle = .dark
@@ -379,26 +402,66 @@ final class PWDownloadsBridge: NSObject, UIDocumentPickerDelegate {
     @objc(chooseFolderFrom:)
     static func chooseFolder(from controller: UIViewController) {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
+        guard controller.presentedViewController == nil else { pwEvent("folder_picker_busy"); return }
+        pickerDelegate.folderPresenter = controller
         picker.delegate = pickerDelegate; picker.allowsMultipleSelection = false
+        picker.modalPresentationStyle = .fullScreen
+        picker.shouldShowFileExtensions = true
+        picker.overrideUserInterfaceStyle = .dark
+        let local = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Spotify Downloads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+        picker.directoryURL = local
+        pwEvent("folder_picker_opened")
         controller.present(picker, animated: true)
     }
     @objc static func resetFolder() {
         UserDefaults.standard.removeObject(forKey: pwFolderKey)
         UserDefaults.standard.removeObject(forKey: "spotifyglass.download.folderName")
+        PWDownloadStore.shared.changed(); pwEvent("folder_reset")
+    }
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        pwEvent("folder_picker_cancelled")
+    }
+    private func folderNotice(_ controller: UIDocumentPickerViewController, title: String, message: String) {
+        let presenter = folderPresenter
+        controller.dismiss(animated: true) {
+            guard let presenter = presenter, presenter.presentedViewController == nil else { return }
+            let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            presenter.present(alert, animated: true)
+        }
     }
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         guard let url = urls.first else { return }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
-            guard scoped else { throw pwError("iOS n’a pas accordé l’accès à ce dossier.") }
+            guard url.isFileURL, try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true else {
+                throw pwError("Ouvre un dossier puis touche Ouvrir pour le sélectionner.")
+            }
+            // Probe only a new, uniquely named empty file in the user-selected folder.
+            // This works for app-owned URLs as well as security-scoped File Providers.
+            var coordinationError: NSError?, writeError: Error?
+            NSFileCoordinator().coordinate(writingItemAt: url, options: .forMerging, error: &coordinationError) { directory in
+                let probe = directory.appendingPathComponent(".pw-write-check-" + UUID().uuidString)
+                do {
+                    try Data().write(to: probe, options: .withoutOverwriting)
+                    try FileManager.default.removeItem(at: probe)
+                } catch { writeError = error }
+            }
+            if let error = writeError ?? coordinationError { throw error }
             let data = try url.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil)
             UserDefaults.standard.set(data, forKey: pwFolderKey)
             UserDefaults.standard.set(url.lastPathComponent, forKey: "spotifyglass.download.folderName")
-            pwEvent("folder_selected")
+            PWDownloadStore.shared.importError = nil
+            PWDownloadStore.shared.changed(); pwEvent("folder_selected")
+            folderNotice(controller, title: "Dossier enregistré", message: "Les prochaines playlists seront enregistrées dans « \(url.lastPathComponent) ».")
         } catch {
-            PWDownloadStore.shared.importError = "Dossier non enregistré : " + error.localizedDescription
-            PWDownloadStore.shared.changed()
+            let message = "Dossier non enregistré : " + error.localizedDescription
+            PWDownloadStore.shared.importError = message
+            PWDownloadStore.shared.changed(); pwEvent("folder_selection_failed", (error as NSError).code)
+            folderNotice(controller, title: "Dossier inaccessible", message: message)
         }
     }
 }

@@ -44,7 +44,7 @@ jobs:
           /tmp/pw-provider-tests
       - name: Test playlist parsing and audio matching
         run: |
-          xcrun swiftc overlays/spotipw/Downloads/PWDownloadParsing.swift tests/download_rules.swift -o /tmp/pw-download-tests
+          xcrun swiftc overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWNativePlaylist.swift tests/download_rules.swift -o /tmp/pw-download-tests
           /tmp/pw-download-tests
       - uses: actions/checkout@v5
         with:

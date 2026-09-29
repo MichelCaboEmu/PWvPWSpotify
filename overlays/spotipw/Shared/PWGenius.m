@@ -21,6 +21,9 @@ static UIViewController *presenter(UIView *view) {
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;
 @property (nonatomic, strong) NSURL *pageURL;
 @property (nonatomic) BOOL cancelled;
+@property (nonatomic, strong) NSMutableArray<NSDictionary *> *songs;
+@property (nonatomic, copy) NSDictionary *headers;
+@property (nonatomic, strong) NSMutableSet<NSNumber *> *seenReferents;
 @end
 @implementation PWGeniusSheet
 - (void)viewDidLoad {
@@ -113,22 +116,35 @@ static UIViewController *presenter(UIView *view) {
             PWEvent(@"genius", @"search_unavailable", status);
             [sheet show:@"Genius n’a pas fourni de réponse exploitable. Tu peux configurer un jeton d’accès Genius dans Mod Settings → Genius, ou consulter la page avec le bouton Genius ↗."]; return;
         }
-        NSDictionary *song = nil;
+        sheet.songs = [NSMutableArray array];
+        sheet.headers = headers;
+        NSMutableSet *seenSongs = [NSMutableSet set];
         for (id hit in hits) {
             if (![hit isKindOfClass:NSDictionary.class]) continue;
             NSDictionary *candidate = hit[@"result"];
             if (![candidate isKindOfClass:NSDictionary.class]) continue;
             NSString *artist = [candidate[@"primary_artist"] isKindOfClass:NSDictionary.class] ? str(candidate[@"primary_artist"][@"name"]) : @"";
-            if (PWMatches(sheet.trackTitle, str(candidate[@"title"])) && PWMatches(sheet.artist, artist)) { song = candidate; break; }
+            if (PWMatches(sheet.trackTitle, str(candidate[@"title"])) && PWMatches(sheet.artist, artist) &&
+                [candidate[@"id"] isKindOfClass:NSNumber.class] && ![seenSongs containsObject:candidate[@"id"]]) {
+                [sheet.songs addObject:candidate]; [seenSongs addObject:candidate[@"id"]];
+                if (sheet.songs.count == 3) break;
+            }
         }
-        if (!song || ![song[@"id"] isKindOfClass:NSNumber.class]) {
+        if (!sheet.songs.count) {
             PWEvent(@"genius", @"no_exact_song_match", 0);
             [sheet show:@"Aucune correspondance sûre pour ce titre et cet artiste. Ouvre Genius pour choisir la bonne version."]; return;
         }
-        NSURL *page = [NSURL URLWithString:str(song[@"url"])];
-        if ([page.scheme isEqualToString:@"https"] && [page.host isEqualToString:@"genius.com"]) sheet.pageURL = page;
-        [sheet referents:[song[@"id"] stringValue] headers:headers page:1 matches:[NSMutableArray array]];
+        PWEvent(@"genius", @"exact_song_candidates", sheet.songs.count);
+        [sheet nextSong];
     });
+}
+- (void)nextSong {
+    if (self.cancelled || !self.songs.count) return;
+    NSDictionary *song = self.songs.firstObject; [self.songs removeObjectAtIndex:0];
+    NSURL *page = [NSURL URLWithString:str(song[@"url"])];
+    if ([page.scheme isEqualToString:@"https"] && [page.host isEqualToString:@"genius.com"]) self.pageURL = page;
+    self.seenReferents = [NSMutableSet set];
+    [self referents:[song[@"id"] stringValue] headers:self.headers page:1 matches:[NSMutableArray array]];
 }
 - (void)referents:(NSString *)songID headers:(NSDictionary *)headers page:(NSInteger)page matches:(NSMutableArray *)matches {
     __weak PWGeniusSheet *weak = self;
@@ -137,11 +153,20 @@ static UIViewController *presenter(UIView *view) {
         NSArray *refs = [root[@"response"] isKindOfClass:NSDictionary.class] ? root[@"response"][@"referents"] : nil;
         if (![refs isKindOfClass:NSArray.class]) {
             PWEvent(@"genius", @"annotations_unavailable", status);
-            [sheet show:@"Les annotations sont indisponibles pour le moment. Consulte la page Genius ou réessaie plus tard."]; return;
+            if (matches.count) {
+                [sheet show:[[matches componentsJoinedByString:@"\n\n———\n\n"] stringByAppendingString:@"\n\nSource : Genius. Certaines pages n’ont pas pu être chargées ; le bouton Genius ouvre la source et ses auteurs."]];
+            } else [sheet show:@"Les annotations sont indisponibles pour le moment. Consulte la page Genius ou réessaie plus tard."];
+            return;
         }
+        PWEvent(@"genius", @"referents_received", refs.count);
+        NSUInteger newReferents = 0, fragments = 0;
         for (id ref in refs) {
             if (![ref isKindOfClass:NSDictionary.class]) continue;
+            NSNumber *identifier = ref[@"id"];
+            if (![identifier isKindOfClass:NSNumber.class] || [sheet.seenReferents containsObject:identifier]) continue;
+            [sheet.seenReferents addObject:identifier]; newReferents++;
             if (!PWFragmentMatches(sheet.line, str(ref[@"fragment"]))) continue;
+            fragments++;
             id annotations = ref[@"annotations"]; if (![annotations isKindOfClass:NSArray.class]) continue;
             for (id annotation in annotations) {
                 if (![annotation isKindOfClass:NSDictionary.class]) continue;
@@ -150,9 +175,18 @@ static UIViewController *presenter(UIView *view) {
                 if (plain.length && ![matches containsObject:plain]) [matches addObject:plain];
             }
         }
-        if (refs.count == 50 && page < 5) { [sheet referents:songID headers:headers page:page + 1 matches:matches]; return; }
+        PWEvent(@"genius", @"fragments_matched", fragments);
+        // Continue to an empty page even when the service caps per_page below 50.
+        // IDs stop a provider which ignores page from looping forever.
+        if (newReferents && page < 20) { [sheet referents:songID headers:headers page:page + 1 matches:matches]; return; }
+        BOOL incomplete = refs.count && (!newReferents || page == 20);
+        if (incomplete) PWEvent(@"genius", @"referents_incomplete", page);
+        if (!matches.count && sheet.songs.count) {
+            PWEvent(@"genius", @"trying_another_exact_song", 0); [sheet nextSong]; return;
+        }
         PWEvent(@"genius", @"annotations_matched", matches.count);
-        NSString *body = matches.count ? [[matches componentsJoinedByString:@"\n\n———\n\n"] stringByAppendingString:@"\n\nSource : Genius. Les annotations peuvent être des interprétations de la communauté. Le bouton Genius ouvre la source et ses auteurs."] : @"Aucune annotation disponible pour ce passage. La page Genius peut proposer des explications pour d’autres lignes.";
+        NSString *body = matches.count ? [[matches componentsJoinedByString:@"\n\n———\n\n"] stringByAppendingString:@"\n\nSource : Genius. Les annotations peuvent être des interprétations de la communauté. Le bouton Genius ouvre la source et ses auteurs."] : @"Aucune annotation n’a pu être associée à cette ligne. Le découpage des paroles ou la version du morceau peut différer sur Genius ; ouvre la source pour vérifier ce passage.";
+        if (incomplete && !matches.count) body = @"La lecture des annotations est incomplète. Ouvre la page Genius pour consulter ce passage.";
         [sheet show:body];
     });
 }

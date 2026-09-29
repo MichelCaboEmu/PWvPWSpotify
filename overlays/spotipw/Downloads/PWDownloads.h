@@ -10,6 +10,7 @@ void PWPrepareNativeDownloads(UIView *row);
 + (NSString *)folderName;
 + (NSString *)summary;
 + (void)presentFrom:(UIViewController *)controller playlistURI:(NSString *)uri title:(NSString *)title authorization:(NSString *)authorization;
++ (void)presentFrom:(UIViewController *)controller playlistURI:(NSString *)uri title:(NSString *)title authorization:(NSString *)authorization nativeModel:(id)model;
 + (void)chooseFolderFrom:(UIViewController *)controller;
 + (void)resetFolder;
 @end

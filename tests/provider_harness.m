@@ -19,6 +19,13 @@ int main(void) {
         check(!PWFragmentMatches(@"line in the light", @"outline in the lighthouse"), @"whole word matching");
         check(PWFragmentMatches(@"Été!", @"ete"), @"short exact annotation");
         check(!PWFragmentMatches(@"", @""), @"empty annotations rejected");
+        check(PWFragmentMatches(@"We walk beneath the northern lights tonight", @"the northern lights"), @"annotation on a phrase inside the selected line");
+        check(PWFragmentMatches(@"I don't know where I'm going", @"I don’t know\nwhere I’m going"), @"curly apostrophes and line wrapping");
+        check(PWFragmentMatches(@"Dont let me go", @"Don't let me go"), @"omitted apostrophe");
+        check(!PWFragmentMatches(@"I see the sun", @"he"), @"tiny subphrase rejected");
+        check(!PWFragmentMatches(@"walking in the light", @"in the lighthouse"), @"reverse match respects word boundaries");
+        check(!PWFragmentMatches(@"We walk beneath the northern lights", @"We run beneath the northern lights"), @"different lyric is not a fuzzy match");
+        check(!PWFragmentMatches(@"Something meaningful", (id)NSNull.null), @"malformed fragment rejected");
         check(PWAllowedAppleURL([NSURL URLWithString:@"https://mvod.itunes.apple.com/a"]), @"Apple CDN allowed");
         for (NSString *s in @[@"http://mvod.itunes.apple.com/a", @"https://itunes.apple.com.evil.test/a", @"https://evilitunes.apple.com/a", @"https://user:secret@itunes.apple.com/a", @"https://itunes.apple.com:444/a"]) {
             check(!PWAllowedAppleURL([NSURL URLWithString:s]), @"untrusted URL rejected");

@@ -55,7 +55,7 @@ SGModRow *PWDownloadsSettingsRow(void){
     return SGWithSymbol(SGPageRow(@"Téléchargement des playlists",^UIViewController *{
         return [[SGModPage alloc] initWithTitle:@"Téléchargements" intro:@"La flèche d’une playlist ouvre la file de fichiers audio. Les nouvelles playlists utilisent la source et le dossier choisis ici." sections:@[
             SGSection(nil,@[SGChoiceRow(@"Source",nil,PWKeyDownloadSource,@[@"YouTube Music — sur cet iPhone",@"YouTube — sur cet iPhone",@"Téléchargement officiel Spotify"],0),
-                SGActionRow(@"Choisir le dossier",@"Sélectionner un dossier dans Fichiers",^{[PWDownloadsBridge chooseFolderFrom:top()];}),
+                SGActionRow(@"Choisir le dossier",@"Ouvre un dossier, puis touche Ouvrir",^{[PWDownloadsBridge chooseFolderFrom:top()];}),
                 SGStatRow(@"Dossier",^NSString *{return [PWDownloadsBridge folderName];}),
                 SGActionRow(@"Dossier par défaut",@"Spotify Downloads dans les fichiers de Spotify",^{[PWDownloadsBridge resetFolder];}),
                 SGActionRow(@"Voir les téléchargements",nil,^{[PWDownloadsBridge presentFrom:top() playlistURI:nil title:nil authorization:nil];}),

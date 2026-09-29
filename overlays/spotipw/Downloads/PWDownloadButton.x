@@ -5,6 +5,11 @@
 #import <objc/message.h>
 
 static char kContext, kFallback;
+@interface PWDownloadModelReference : NSObject
+@property (nonatomic, weak) id model;
+@end
+@implementation PWDownloadModelReference
+@end
 BOOL PWDownloadsEnabled(void) { return [NSUserDefaults.standardUserDefaults integerForKey:PWKeyDownloadSource] != 2; }
 
 // Selectors and object return encodings verified in the supplied 9.1.78 executable.
@@ -28,7 +33,8 @@ static NSDictionary *contextFor(id model) {
     NSString *uri=[url isKindOfClass:NSURL.class]?[url absoluteString]:([url isKindOfClass:NSString.class]?url:nil);
     id title=objectGetter(model,@"playlistName");
     if(!uri.length)return nil;
-    return @{@"uri":uri,@"title":[title isKindOfClass:NSString.class]?title:@"Playlist"};
+    PWDownloadModelReference *reference = [PWDownloadModelReference new]; reference.model = model;
+    return @{@"uri":uri,@"title":[title isKindOfClass:NSString.class]?title:@"Playlist",@"model":reference};
 }
 static void bindControl(UIView *view, NSDictionary *context) {
     if([view isKindOfClass:UIControl.class]) objc_setAssociatedObject(view,&kContext,context,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -51,7 +57,7 @@ static void show(UIView *button,NSDictionary *context) {
     if([vc isKindOfClass:UINavigationController.class]&&[NSStringFromClass(((UINavigationController *)vc).topViewController.class) containsString:@"PWDownloadQueueController"])return;
     if(!vc||vc.isBeingPresented)return;
     PWEvent(@"download",@"button_pressed",0);
-    [PWDownloadsBridge presentFrom:vc playlistURI:context[@"uri"] title:context[@"title"] authorization:SGKaraokeSpotifyAuthorization()];
+    [PWDownloadsBridge presentFrom:vc playlistURI:context[@"uri"] title:context[@"title"] authorization:SGKaraokeSpotifyAuthorization() nativeModel:((PWDownloadModelReference *)context[@"model"]).model];
 }
 @implementation PWDownloadFallbackTarget
 + (instancetype)shared { static id target;static dispatch_once_t once;dispatch_once(&once,^{target=[self new];});return target; }

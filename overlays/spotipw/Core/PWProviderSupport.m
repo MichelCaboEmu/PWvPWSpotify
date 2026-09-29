@@ -9,11 +9,24 @@ BOOL PWMatches(NSString *expected, NSString *actual) {
     NSString *a = PWNormalize(expected), *b = PWNormalize(actual);
     return a.length && [a isEqualToString:b];
 }
+// Lyrics providers disagree about apostrophes and line breaks. Keep song-title
+// matching strict; only lyric fragments use this normalization.
+static NSString *lyricText(NSString *text) {
+    if (![text isKindOfClass:NSString.class]) return @"";
+    NSRegularExpression *apostrophe = [NSRegularExpression regularExpressionWithPattern:@"(?<=\\p{L})['’ʼ](?=\\p{L})" options:0 error:nil];
+    return PWNormalize([apostrophe stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0,text.length) withTemplate:@""]);
+}
 BOOL PWFragmentMatches(NSString *line, NSString *fragment) {
-    NSString *needle = PWNormalize(line), *haystack = PWNormalize(fragment);
-    if (!needle.length) return NO;
-    return [needle isEqualToString:haystack] || (needle.length >= 12 &&
-        [[NSString stringWithFormat:@" %@ ", haystack] containsString:[NSString stringWithFormat:@" %@ ", needle]]);
+    NSString *a = lyricText(line), *b = lyricText(fragment);
+    if (!a.length || !b.length) return NO;
+    if ([a isEqualToString:b]) return YES;
+    // An annotation can cover a verse OR just a phrase inside the selected line.
+    // Require whole words and a meaningful phrase, never an incidental substring.
+    NSString *shorter = a.length <= b.length ? a : b;
+    NSString *longer = a.length <= b.length ? b : a;
+    NSUInteger words = [shorter componentsSeparatedByString:@" "].count;
+    if (shorter.length < 6 || (words < 2 && shorter.length < 8)) return NO;
+    return [[NSString stringWithFormat:@" %@ ", longer] containsString:[NSString stringWithFormat:@" %@ ", shorter]];
 }
 BOOL PWAllowedAppleURL(NSURL *url) {
     NSString *h = url.host.lowercaseString;

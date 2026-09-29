@@ -16,6 +16,36 @@ enum DownloadTests {
         check(PWDownloadRules.playlistPath("https://evil.com/playlist/" + id) == nil, "foreign URL")
         check(PWDownloadRules.playlistPath("spotify:playlist:../../secret") == nil, "path traversal")
         check(PWDownloadRules.playlistPath("spotify:album:" + id) == nil, "album is not playlist")
+        // Mirrors the verified 9.1.78 field shape, including its loaded/unloaded enum.
+        struct Artist { var name: String }
+        struct Metadata { var name: String; var artists: [Artist]; var duration: Double }
+        struct Item { var uri: URL; var metadata: Metadata; var isRecommendation = false }
+        enum Entry { case loaded(Item), unloaded(Int) }
+        struct ListMetadata { var isLoaded = true; var totalLength: UInt = 1 }
+        struct TrackModel { var items: [Entry]; var unrangedLength = 1; var unfilteredLength = 1; var loadedItemCount = 1 }
+        struct Entity { var entityURL: URL; var metadata = ListMetadata(); var tracks: TrackModel }
+        struct Header { var entityModel: Entity }
+        var itemMeta = Metadata(name: "La vérité", artists: [Artist(name: "Élodie")], duration: 200)
+        let nativeTrack = Item(uri: URL(string: "spotify:track:" + id)!, metadata: itemMeta)
+        let playlistURI = "spotify:playlist:" + id
+        var header = Header(entityModel: Entity(entityURL: URL(string: playlistURI)!, tracks: TrackModel(items: [.loaded(nativeTrack)])))
+        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.tracks.count == 1, "complete native list")
+        check(PWNativePlaylist.read(header: header, requestedURI: "spotify:playlist:AAAAAAAAAAAAAAAAAAAAAA") == nil, "reject another displayed playlist")
+        header.entityModel.tracks.loadedItemCount = 0
+        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.complete == false, "reject partially loaded native list")
+        header.entityModel.tracks.loadedItemCount = 1; header.entityModel.tracks.unfilteredLength = 2
+        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.complete == false, "reject filtered list")
+        header.entityModel.tracks.unfilteredLength = 1; header.entityModel.tracks.items = [.unloaded(0)]
+        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI) == nil, "unloaded enum cannot masquerade as track")
+        itemMeta.duration = .nan
+        header.entityModel.tracks.items = [.loaded(Item(uri: nativeTrack.uri, metadata: itemMeta))]
+        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI) == nil, "reject invalid native duration")
+        header.entityModel.tracks.items = [.loaded(Item(uri: URL(string: "spotify:episode:" + id)!, metadata: nativeTrack.metadata))]
+        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.tracks.isEmpty == true, "skip episodes explicitly")
+        header.entityModel.tracks.items = [.loaded(Item(uri: nativeTrack.uri, metadata: nativeTrack.metadata, isRecommendation: true))]
+        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.complete == false, "reject injected recommendations")
+        header.entityModel.metadata.isLoaded = false
+        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI) == nil, "unloaded metadata is not a snapshot")
         let track = PWAudioTrack(id: id, title: "La vérité", artist: "Élodie", duration: 200)
         let exact = PWAudioCandidate(id: "aB1_cD2-eF3", title: "La Verite", artist: "Elodie", duration: 202)
         check(PWDownloadRules.score(exact, for: track) != nil, "accent-insensitive match")
