@@ -20,8 +20,8 @@ Les champs ont été vérifiés dans les métadonnées Swift du binaire Spotify 
 - `ListItem.uri`, `isRecommendation`, `metadata` ; métadonnées `name`, `artists`,
   `duration` et `ListItem.Artist.name`.
 
-La réflexion Swift évite les offsets mémoire et les sélecteurs supposés. L’URI
-et tous les compteurs doivent correspondre. Une liste partielle, filtrée ou avec
+La réflexion Swift évite les offsets mémoire et les sélecteurs supposés. L’URI et les compteurs du modèle des titres doivent correspondre. Le compteur
+d’en-tête est informatif : il peut être nul ou obsolète indépendamment des titres. Une liste partielle, filtrée ou avec
 des recommandations injectées n’est jamais mise en file comme liste complète.
 L’API Web reste le secours si la lecture native est indisponible/incomplète.
 Les grandes playlists chargées par fenêtres peuvent donc encore échouer : cette
@@ -53,3 +53,25 @@ URLs du conteneur de l’app. La sélection, l’annulation et l’échec sont j
    sur une partie seulement de la ligne. Comparer avec la page Genius.
 
 Les tests de règles et la compilation iOS ne remplacent pas ces essais sur appareil.
+
+## Retour appareil sur 471c9b3
+
+Le journal rapporte `playlist_native_incomplete` avec zéro comme compteur
+`ListMetadata.totalLength`. Le message affiché provenait du test
+`totalLength == unfilteredLength == unrangedLength` : cette égalité attribuait
+à tort tout écart d’en-tête à un filtre. Le journal précédent ne contenait pas
+les autres compteurs, donc il ne prouvait pas qu’un filtre était réellement actif.
+
+Le lecteur préfère maintenant `FTPViewModelImplementation.playlistModel`
+→ `FTPModelImplementation.model` lorsque disponible, puis utilise les compteurs
+du seul `PLPlaylistTracksModel` pour établir sa complétude. Le chemin de champs
+supplémentaire a été vérifié dans les mêmes métadonnées Swift de 9.1.78.
+Le compteur d’en-tête ne bloque plus une liste cohérente ; une liste partielle
+ou filtrée reste refusée. Les cinq compteurs, la source du snapshot et la raison
+de refus sont désormais journalisés sans contenu de playlist.
+
+Dans la file, les cellules ont une hauteur automatique. Toucher l’erreur
+principale déplie tout son texte ; un appui long copie l’erreur entière, également
+pour les erreurs des morceaux et des files en pause. Les tests de règles couvrent
+l’en-tête nul/obsolète, la préférence du modèle courant et le maintien du refus
+des listes réellement partielles. Validation sur iPhone encore nécessaire.

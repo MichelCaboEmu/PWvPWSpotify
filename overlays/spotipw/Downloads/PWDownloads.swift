@@ -392,7 +392,7 @@ final class PWDownloadsBridge: NSObject, UIDocumentPickerDelegate {
     static func present(from controller: UIViewController, playlistURI: String?, title: String?, authorization: String?, nativeModel: AnyObject?) {
         let vc = PWDownloadQueueController(style: .insetGrouped)
         if let uri = playlistURI {
-            let native = nativeModel.flatMap { PWNativePlaylist.read(header: $0, requestedURI: uri) }
+            let native = nativeModel.flatMap { PWNativePlaylist.read(header: $0, requestedURI: uri, report: pwEvent) }
             PWDownloadStore.shared.importPlaylist(uri: uri, title: title ?? "Playlist", authorization: authorization ?? "", native: native)
         }
         let navigation = UINavigationController(rootViewController: vc)
@@ -470,9 +470,12 @@ final class PWDownloadsBridge: NSObject, UIDocumentPickerDelegate {
 private final class PWDownloadQueueController: UITableViewController {
     private let store = PWDownloadStore.shared
     private var observer: NSObjectProtocol?
-    private var sharingRoot: URL?
+    private var expandedError: String?
+    private var errorIsExpanded: Bool { store.importError != nil && expandedError == store.importError }
     override func viewDidLoad() {
         super.viewDidLoad(); title = "Téléchargements"
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 90
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(close))
         navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Pause", style: .plain, target: self, action: #selector(pause))
         observer = NotificationCenter.default.addObserver(forName: pwChanged, object: nil, queue: .main) { [weak self] _ in
@@ -496,10 +499,25 @@ private final class PWDownloadQueueController: UITableViewController {
     }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
-        cell.textLabel?.numberOfLines = 2; cell.detailTextLabel?.numberOfLines = 0
+        cell.textLabel?.numberOfLines = 0; cell.detailTextLabel?.numberOfLines = 0
+        cell.textLabel?.lineBreakMode = .byWordWrapping
+        cell.detailTextLabel?.lineBreakMode = .byWordWrapping
+        cell.textLabel?.adjustsFontForContentSizeCategory = true
+        cell.detailTextLabel?.adjustsFontForContentSizeCategory = true
         if indexPath.section == 0 {
-            cell.textLabel?.text = store.importError ?? (store.importing ? "Chargement de tous les morceaux…" : "Dossier des prochaines playlists : " + PWDownloadsBridge.folderName)
-            cell.selectionStyle = .none; return cell
+            if let error = store.importError {
+                cell.textLabel?.text = "Téléchargement impossible"
+                cell.detailTextLabel?.text = error
+                cell.detailTextLabel?.numberOfLines = errorIsExpanded ? 0 : 3
+                cell.accessoryView = UIImageView(image: UIImage(systemName: errorIsExpanded ? "chevron.up" : "chevron.down"))
+                cell.accessibilityLabel = "Téléchargement impossible. " + error
+                cell.accessibilityHint = errorIsExpanded ? "Toucher pour réduire. Appui long pour copier l’erreur." : "Toucher pour afficher l’erreur entière. Appui long pour la copier."
+                cell.selectionStyle = .default
+            } else {
+                cell.textLabel?.text = store.importing ? "Chargement de tous les morceaux…" : "Dossier des prochaines playlists : " + PWDownloadsBridge.folderName
+                cell.selectionStyle = .none
+            }
+            return cell
         }
         let job = store.jobs[indexPath.section - 1]
         if indexPath.row == 0 {
@@ -515,7 +533,13 @@ private final class PWDownloadQueueController: UITableViewController {
     }
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard indexPath.section > 0 else { return }
+        guard indexPath.section > 0 else {
+            if let error = store.importError {
+                expandedError = errorIsExpanded ? nil : error
+                tableView.reloadRows(at: [indexPath], with: .automatic)
+            }
+            return
+        }
         let job = store.jobs[indexPath.section - 1]
         if indexPath.row == 0 { store.resume(job.id); return }
         let item = job.items[indexPath.row - 1]
@@ -535,6 +559,20 @@ private final class PWDownloadQueueController: UITableViewController {
         } catch {
             let alert = UIAlertController(title: "Fichier indisponible", message: error.localizedDescription, preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default)); present(alert, animated: true)
+        }
+    }
+    override func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
+        let error: String?
+        if indexPath.section == 0 { error = store.importError }
+        else {
+            let job = store.jobs[indexPath.section - 1]
+            error = indexPath.row == 0 ? job.lastError : job.items[indexPath.row - 1].error
+        }
+        guard let message = error else { return nil }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
+            UIMenu(children: [UIAction(title: "Copier l’erreur complète", image: UIImage(systemName: "doc.on.doc")) { _ in
+                UIPasteboard.general.string = message
+            }])
         }
     }
     override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {

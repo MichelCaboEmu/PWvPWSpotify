@@ -30,6 +30,30 @@ enum DownloadTests {
         let playlistURI = "spotify:playlist:" + id
         var header = Header(entityModel: Entity(entityURL: URL(string: playlistURI)!, tracks: TrackModel(items: [.loaded(nativeTrack)])))
         check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.tracks.count == 1, "complete native list")
+        header.entityModel.metadata.totalLength = 0
+        var nativeEvents: [String: Int] = [:]
+        let zeroHeader = PWNativePlaylist.read(header: header, requestedURI: playlistURI) { nativeEvents[$0] = $1 }
+        check(zeroHeader?.complete == true && zeroHeader?.total == 1, "zero header count is not a filter")
+        check(nativeEvents["native_header_count"] == 0 && nativeEvents["native_unfiltered_count"] == 1 && nativeEvents["native_loaded_count"] == 1, "diagnostics distinguish header and track counters")
+        header.entityModel.tracks.loadedItemCount = 0
+        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.complete == false, "zero header never allows a partial list")
+        header.entityModel.tracks.loadedItemCount = 1
+        header.entityModel.metadata.totalLength = 10
+        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.complete == true, "stale header count does not invalidate coherent tracks snapshot")
+        header.entityModel.metadata.totalLength = 1
+        struct Model { var model: Entity }
+        struct LiveHeader { var entityModel: Entity; var playlistModel: Model }
+        var staleEntity = header.entityModel; staleEntity.tracks.loadedItemCount = 0
+        var liveHeader = LiveHeader(entityModel: staleEntity, playlistModel: Model(model: header.entityModel))
+        check(PWNativePlaylist.read(header: liveHeader, requestedURI: playlistURI)?.complete == true, "prefer current model over stale header snapshot")
+        liveHeader.entityModel = header.entityModel; liveHeader.playlistModel.model = staleEntity
+        check(PWNativePlaylist.read(header: liveHeader, requestedURI: playlistURI)?.complete == false, "do not substitute stale complete header for current partial model")
+        liveHeader.playlistModel.model.entityURL = URL(string: "spotify:playlist:AAAAAAAAAAAAAAAAAAAAAA")!
+        check(PWNativePlaylist.read(header: liveHeader, requestedURI: playlistURI) == nil, "live snapshot from another playlist rejected")
+        header.entityModel.tracks.unfilteredLength = -1
+        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.complete == false, "negative count rejected safely")
+        header.entityModel.tracks.unfilteredLength = 1
+
         check(PWNativePlaylist.read(header: header, requestedURI: "spotify:playlist:AAAAAAAAAAAAAAAAAAAAAA") == nil, "reject another displayed playlist")
         header.entityModel.tracks.loadedItemCount = 0
         check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.complete == false, "reject partially loaded native list")
