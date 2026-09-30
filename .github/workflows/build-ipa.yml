@@ -60,6 +60,7 @@ jobs:
       - name: Build and validate merged IPA
         run: bash scripts/build.sh ipa/spotify.ipa
       - name: Upload IPA, validation and corresponding source
+        id: bundle
         uses: actions/upload-artifact@v5
         with:
           name: PWvPWSpotify-9.1.78
@@ -70,7 +71,23 @@ jobs:
             out/PWvPWSpotify-corresponding-source.tar.gz
           if-no-files-found: error
           retention-days: 7
+      - name: Upload standalone IPA (no enclosing ZIP)
+        id: ipa
+        uses: actions/upload-artifact@v7
+        with:
+          path: out/PWvPWSpotify-9.1.78.ipa
+          archive: false
+          if-no-files-found: error
+          retention-days: 7
       - name: Result
+        env:
+          IPA_ARTIFACT_URL: ${{ steps.ipa.outputs.artifact-url }}
+          ZIP_ARTIFACT_URL: ${{ steps.bundle.outputs.artifact-url }}
         run: |
-          echo '### PWvPWSpotify 9.1.78' >> "$GITHUB_STEP_SUMMARY"
-          echo 'IPA built and structurally validated. Sign it with your own signing tool. Runtime on iPhone has not been tested by this workflow.' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '### PWvPWSpotify 9.1.78'
+            printf -- '- [Télécharger l’IPA seul — PWvPWSpotify-9.1.78.ipa](%s)\n' "$IPA_ARTIFACT_URL"
+            printf -- '- [Télécharger le ZIP complet — IPA, validations et sources](%s)\n' "$ZIP_ARTIFACT_URL"
+            echo ''
+            echo 'IPA built and structurally validated. Sign it with your own signing tool. Runtime on iPhone has not been tested by this workflow.'
+          } >> "$GITHUB_STEP_SUMMARY"

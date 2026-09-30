@@ -210,7 +210,10 @@ compte, AI DJ, etc.) ne sont pas débloquées par cette fusion.
 2. Coller le lien HTTPS direct de l’IPA Spotify **9.1.78 / 917802214 déchiffré et vierge**.
 3. Garder l’empreinte proposée pour le fichier fourni dans cette conversation.
    Un autre fichier du même build nécessite sa propre empreinte (ou laisser vide).
-4. Attendre le succès du workflow, puis récupérer l’artefact **PWvPWSpotify-9.1.78**.
+4. Attendre le succès du workflow, puis récupérer **PWvPWSpotify-9.1.78.ipa**
+   dans **Artifacts** pour télécharger uniquement l’IPA, sans ZIP supplémentaire.
+   L’artefact **PWvPWSpotify-9.1.78** conserve le ZIP complet avec l’IPA,
+   les validations et les sources. Les deux liens figurent aussi dans le résumé.
 5. Signer `PWvPWSpotify-9.1.78.ipa` avec son outil de signature.
 
 Le lien IPA n’est pas stocké dans le dépôt et est masqué dans les logs du workflow.
