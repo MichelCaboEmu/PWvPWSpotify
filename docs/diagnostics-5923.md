@@ -75,3 +75,26 @@ principale déplie tout son texte ; un appui long copie l’erreur entière, ég
 pour les erreurs des morceaux et des files en pause. Les tests de règles couvrent
 l’en-tête nul/obsolète, la préférence du modèle courant et le maintien du refus
 des listes réellement partielles. Validation sur iPhone encore nécessaire.
+
+## Retour appareil sur ab206f8 : HTTP 302 de YouTube Music
+
+Les quatre compteurs de titres valent 72 : la playlist est complète et le
+problème précédent est résolu pour cette liste. Le nouvel échec survient à
+`youtube_music_config_http: 302`. Une requête publique sans cookies a reproduit
+la redirection de `music.youtube.com/` vers `consent.youtube.com/m`.
+
+Une redirection publique entre les hôtes YouTube autorisés est maintenant
+suivie. Une redirection vers le consentement déclenche un état distinct et une
+ligne « Choisir les cookies YouTube ». La page officielle s’ouvre dans une
+WKWebView temporaire isolée ; l’utilisateur accepte ou refuse lui-même.
+Au retour sur YouTube, seuls les cookies de préférence SOCS/CONSENT valides
+pour youtube.com sont conservés. Ils sont réutilisés pour la configuration,
+la recherche et les requêtes de l’extracteur local ; les cookies de compte et
+les identifiants de visite ne sont pas transférés. Aucun jeton Spotify ne rejoint
+ces sessions. La validation reprend seulement les files mises en pause par cette
+étape ; une pause demandée entretemps par l’utilisateur reste respectée.
+
+À vérifier sur iPhone : choisir/refuser les cookies, attendre la reprise, puis
+confirmer `audio_saved` et l’existence du M4A. Les refus d’accès, de connexion
+ou les vérifications anti-bot restent des erreurs du fournisseur. La correction
+de la redirection n’est pas une preuve d’extraction audio réussie sur l’appareil.

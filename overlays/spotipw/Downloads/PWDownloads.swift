@@ -39,16 +39,37 @@ private final class PWDownloadHTTP: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
                     completionHandler: @escaping (URLRequest?) -> Void) {
-        guard let url = request.url, url.scheme == "https", url.user == nil, url.password == nil else { completionHandler(nil); return }
-        completionHandler((host != nil ? url.host == host : PWDownloadRules.mediaURL(url)) ? request : nil)
+        guard let url = request.url, PWYouTubeAccess.redirectAllowed(originHost: host, to: url) else {
+            let consent = request.url.map(PWYouTubeAccess.consentURL) == true
+            pwEvent(consent ? "youtube_consent_redirect" : "redirect_refused", response.statusCode)
+            completionHandler(nil); return
+        }
+        var redirected = request
+        if let host = host, PWYouTubeAccess.publicHost(host) {
+            redirected.setValue(nil, forHTTPHeaderField: "Authorization")
+            PWYouTubeAccess.apply(to: &redirected)
+        }
+        pwEvent("redirect_followed", response.statusCode)
+        completionHandler(redirected)
     }
     func data(_ request: URLRequest, stage: PWDownloadStage, maximum: Int = 12 * 1024 * 1024) async throws -> Data {
         let data: Data, response: URLResponse
-        do { (data, response) = try await session.data(for: request) }
+        var prepared = request
+        if let host = host, PWYouTubeAccess.publicHost(host) {
+            prepared.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+            PWYouTubeAccess.apply(to: &prepared)
+        }
+        do { (data, response) = try await session.data(for: prepared) }
         catch { pwEvent(stage.rawValue + "_network", (error as NSError).code); throw error }
         guard let http = response as? HTTPURLResponse else { throw pwError("Réponse réseau invalide.") }
         guard http.statusCode == 200 else {
             pwEvent(stage.rawValue + "_http", http.statusCode)
+            if (300...399).contains(http.statusCode), !stage.spotify,
+               let location = http.value(forHTTPHeaderField: "Location"),
+               let target = URL(string: location, relativeTo: http.url)?.absoluteURL,
+               PWYouTubeAccess.consentURL(target) {
+                throw PWYouTubeConsentRequired(source: stage.rawValue.hasPrefix("youtube_music") ? 0 : 1)
+            }
             throw PWDownloadHTTPError(stage: stage, status: http.statusCode)
         }
         guard data.count < maximum else { throw pwError("La réponse du fournisseur est trop grande.") }
@@ -127,6 +148,8 @@ private final class PWDownloadStore {
     var jobs: [PWDownloadJob] = []
     var importing = false
     var importError: String?
+    var consentSource: Int?
+    private var consentJobIDs = Set<String>()
     private var worker: Task<Void, Never>?
     private var importer: Task<Void, Never>?
     private var activeID: String?
@@ -236,7 +259,7 @@ private final class PWDownloadStore {
         }
     }
     func pauseAll() {
-        importer?.cancel()
+        importer?.cancel(); consentJobIDs.removeAll()
         for j in jobs.indices { jobs[j].paused = true }
         worker?.cancel(); changed()
     }
@@ -246,9 +269,16 @@ private final class PWDownloadStore {
         for i in jobs[j].items.indices where jobs[j].items[i].state == "failed" { jobs[j].items[i].state = "pending"; jobs[j].items[i].error = nil }
         changed(); start()
     }
+    func consentCompleted() {
+        let ids = consentJobIDs
+        consentJobIDs.removeAll(); consentSource = nil; searchConfigs.removeAll()
+        pwEvent("youtube_consent_saved")
+        for id in ids { resume(id) }
+        changed()
+    }
     func remove(_ id: String) {
         if activeID == id { worker?.cancel() }
-        jobs.removeAll { $0.id == id }; changed()
+        jobs.removeAll { $0.id == id }; consentJobIDs.remove(id); changed()
     }
     private func start() {
         guard worker == nil else { return }
@@ -277,6 +307,15 @@ private final class PWDownloadStore {
                     update(job.id, track.id, state: cancelled ? "pending" : "failed", error: cancelled ? nil : error.localizedDescription)
                     pwEvent(cancelled ? "audio_paused" : "audio_failed", (error as NSError).code)
                     if cancelled { break }
+                    if let consent = error as? PWYouTubeConsentRequired {
+                        consentSource = consent.source
+                        // Resume only the jobs affected by this consent pause.
+                        for index in jobs.indices where !jobs[index].paused {
+                            consentJobIDs.insert(jobs[index].id)
+                            jobs[index].paused = true; jobs[index].lastError = consent.localizedDescription
+                        }
+                        pwEvent("youtube_consent_required", consent.source); changed(); break
+                    }
                     if (error as? PWDownloadError)?.pausesQueue == true || error is PWDownloadHTTPError {
                         for index in jobs.indices {
                             jobs[index].paused = true
@@ -487,7 +526,7 @@ private final class PWDownloadQueueController: UITableViewController {
     @objc private func pause() { store.pauseAll() }
     override func numberOfSections(in tableView: UITableView) -> Int { store.jobs.count + 1 }
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        section == 0 ? 1 : store.jobs[section - 1].items.count + 1
+        section == 0 ? (store.consentSource == nil ? 1 : 2) : store.jobs[section - 1].items.count + 1
     }
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         section == 0 ? PWDownloadsBridge.summary : store.jobs[section - 1].title
@@ -505,6 +544,12 @@ private final class PWDownloadQueueController: UITableViewController {
         cell.textLabel?.adjustsFontForContentSizeCategory = true
         cell.detailTextLabel?.adjustsFontForContentSizeCategory = true
         if indexPath.section == 0 {
+            if indexPath.row == 1 {
+                cell.textLabel?.text = "Choisir les cookies YouTube"
+                cell.detailTextLabel?.text = "Fais ton choix sur la page Google. La file reprendra après validation."
+                cell.imageView?.image = UIImage(systemName: "globe")
+                cell.accessoryType = .disclosureIndicator; return cell
+            }
             if let error = store.importError {
                 cell.textLabel?.text = "Téléchargement impossible"
                 cell.detailTextLabel?.text = error
@@ -534,6 +579,13 @@ private final class PWDownloadQueueController: UITableViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard indexPath.section > 0 else {
+            if indexPath.row == 1, let source = store.consentSource {
+                let consent = PWYouTubeConsentController(source: source) { [weak self] in self?.store.consentCompleted() }
+                let navigation = UINavigationController(rootViewController: consent)
+                navigation.overrideUserInterfaceStyle = .dark
+                present(navigation, animated: true); pwEvent("youtube_consent_opened", source)
+                return
+            }
             if let error = store.importError {
                 expandedError = errorIsExpanded ? nil : error
                 tableView.reloadRows(at: [indexPath], with: .automatic)

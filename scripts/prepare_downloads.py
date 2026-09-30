@@ -14,8 +14,14 @@ def apply(root, sg, change):
     shutil.copytree(upstream / 'Sources/YouTubeKit', vendor)
     shutil.copy2(upstream / 'LICENSE', vendor / 'LICENSE')
     change(vendor / 'SignatureSolver.swift', 'Bundle.module', 'Bundle.pwYouTubeKit')
+    # Carry only the user's YouTube cookie preference into the local extractor.
+    # OAuth/session cookies stay untouched; the fusion invokes useOAuth=false.
+    change(vendor / 'YouTube.swift', 'request.httpShouldHandleCookies = false',
+           'request.httpShouldHandleCookies = false\n            PWYouTubeAccess.apply(to: &request)', count=2)
+    change(vendor / 'InnerTube.swift', 'let (responseData, _) = try await URLSession.shared.data(for: request)',
+           'PWYouTubeAccess.apply(to: &request)\n        let (responseData, _) = try await URLSession.shared.data(for: request)')
     # These logs can contain URLs and search terms. Our separate diagnostic events contain only codes.
-    # Keep upstream code intact apart from resource routing and use of a disabled log.
+    # Other than explicit preference/resource routing patches, preserve the extractor.
     for path in vendor.rglob('*.swift'):
         text = path.read_text()
         import re
@@ -28,7 +34,7 @@ def apply(root, sg, change):
         'CFBundlePackageType': 'BNDL', 'CFBundleVersion': '1'}))
     shutil.copy2(upstream / 'LICENSE', bundle / 'LICENSE-YouTubeKit.txt')
     change(sg / 'tweak/Makefile', 'SafariServices Security MetricKit CoreMedia CoreVideo',
-           'SafariServices Security MetricKit CoreMedia CoreVideo JavaScriptCore')
+           'SafariServices Security MetricKit CoreMedia CoreVideo JavaScriptCore WebKit')
     change(sg / 'scripts/pipeline.sh', 'FILES=("$TWEAK_DEB")', 'FILES=("$TWEAK_DEB" "$ROOT/PWYouTubeKit.bundle")')
     # Documents are exported audio, visible through Files; the private queue lives in Application Support.
     plist = sg / 'plist/liquid-glass.plist'

@@ -128,6 +128,38 @@ enum DownloadTests {
         check(PWDownloadHTTPError(stage: .spotifyItems, status: 404).localizedDescription.contains("n’a pas démarré"), "attribute playlist 404 to Spotify before YouTube")
         check(PWDownloadHTTPError(stage: .youtubeMusicSearch, status: 404).localizedDescription.contains("YouTube Music"), "attribute Music 404 correctly")
         check(PWDownloadHTTPError(stage: .youtubeSearch, status: 401).localizedDescription.contains("YouTube"), "YouTube error never asks to renew Spotify session")
+
+        check(PWYouTubeAccess.redirectAllowed(originHost: "music.youtube.com", to: URL(string: "https://www.youtube.com/")!), "follow public YouTube canonical redirect")
+        check(PWYouTubeAccess.redirectAllowed(originHost: "www.youtube.com", to: URL(string: "https://m.youtube.com/")!), "follow public mobile redirect")
+        check(!PWYouTubeAccess.redirectAllowed(originHost: "music.youtube.com", to: URL(string: "https://consent.youtube.com/m")!), "consent requires user choice instead of an API fetch")
+        check(PWYouTubeAccess.consentURL(URL(string: "https://consent.youtube.com/m?continue=x")!), "recognize consent destination")
+        for address in ["http://consent.youtube.com/m", "https://consent.youtube.com.evil.test/m", "https://user:pass@consent.youtube.com/m", "https://consent.youtube.com:444/m"] {
+            check(!PWYouTubeAccess.consentURL(URL(string: address)!), "reject unsafe consent destination")
+        }
+        check(!PWYouTubeAccess.redirectAllowed(originHost: "api.spotify.com", to: URL(string: "https://www.youtube.com/")!), "Spotify redirect isolation")
+        check(!PWYouTubeAccess.redirectAllowed(originHost: "www.youtube.com", to: URL(string: "https://accounts.google.com/")!), "do not silently enter account sign-in")
+        check(!PWYouTubeAccess.redirectAllowed(originHost: "music.youtube.com", to: URL(string: "https://youtube.com.evil.test/")!), "reject foreign redirect")
+        check(PWYouTubeAccess.redirectAllowed(originHost: nil, to: URL(string: "https://rr1.googlevideo.com/videoplayback")!), "preserve audio redirect policy")
+        let preferenceSuite = "PWDownloadTests-" + UUID().uuidString
+        let preferences = UserDefaults(suiteName: preferenceSuite)!
+        defer { preferences.removePersistentDomain(forName: preferenceSuite) }
+        let now = Date(timeIntervalSince1970: 1800000000)
+        func cookie(_ name: String, _ value: String, domain: String = ".youtube.com", expires: Date? = nil) -> HTTPCookie {
+            var properties: [HTTPCookiePropertyKey: Any] = [.name: name, .value: value, .domain: domain, .path: "/"]
+            if let expires = expires { properties[.expires] = expires }
+            return HTTPCookie(properties: properties)!
+        }
+        let choice = cookie("SOCS", "user-choice", expires: now.addingTimeInterval(3600))
+        check(PWYouTubeAccess.save([choice, cookie("SID", "account-secret"), cookie("VISITOR_INFO1_LIVE", "visitor")], defaults: preferences, now: now), "save actual preference only")
+        check(PWYouTubeAccess.cookieHeader(for: URL(string: "https://music.youtube.com/")!, defaults: preferences, now: now) == "SOCS=user-choice", "copy no account or visitor cookies")
+        for address in ["https://api.spotify.com/", "https://rr1.googlevideo.com/", "https://consent.youtube.com/m", "http://www.youtube.com/"] {
+            check(PWYouTubeAccess.cookieHeader(for: URL(string: address)!, defaults: preferences, now: now) == nil, "preference never leaves public YouTube")
+        }
+        check(!PWYouTubeAccess.preference(cookie("CONSENT", "PENDING+123"), now: now), "pending choice is not a completed choice")
+        check(!PWYouTubeAccess.preference(cookie("SOCS", "x", domain: ".google.com"), now: now), "reject foreign cookie")
+        check(!PWYouTubeAccess.preference(cookie("SOCS", "x", expires: now.addingTimeInterval(-1)), now: now), "reject expired preference")
+        check(PWYouTubeAccess.cookieHeader(for: URL(string: "https://www.youtube.com/")!, defaults: preferences, now: now.addingTimeInterval(3601)) == nil, "saved preference expires")
+        check(PWYouTubeConsentRequired(source: 0).localizedDescription.contains("Choisir les cookies YouTube"), "give actionable consent message")
         print("PASS: \(count) download rules")
     }
 }
