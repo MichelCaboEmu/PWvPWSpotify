@@ -68,7 +68,12 @@ final class PWDownloadHTTP: NSObject, URLSessionTaskDelegate {
                let location = http.value(forHTTPHeaderField: "Location"),
                let target = URL(string: location, relativeTo: http.url)?.absoluteURL,
                PWYouTubeAccess.consentURL(target) {
-                throw PWYouTubeConsentRequired(source: stage.rawValue.hasPrefix("youtube_music") ? 0 : 1, target: target)
+                let headers = http.allHeaderFields.reduce(into: [String: String]()) { result, entry in
+                    if let name = entry.key as? String, let value = entry.value as? String { result[name] = value }
+                }
+                let cookies = http.url.map { PWYouTubeAccess.consentState(headers: headers, from: $0) } ?? []
+                throw PWYouTubeConsentRequired(source: stage.rawValue.hasPrefix("youtube_music") ? 0 : 1,
+                                               target: target, cookies: cookies)
             }
             throw PWDownloadHTTPError(stage: stage, status: http.statusCode)
         }

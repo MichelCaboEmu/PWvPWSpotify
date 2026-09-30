@@ -124,3 +124,15 @@ Nouveaux événements, sans URL ni valeur de cookie :
 `youtube_access_config_missing`, `youtube_access_verification_failed` et
 `youtube_access_resumed`. Même après validation de la configuration, l’extraction
 audio complète doit être confirmée sur iPhone avec `audio_saved`.
+
+Les sondes publiques suivantes ont reproduit la différence : identité mobile →
+HTTP 200 ; identité de la requête de configuration → HTTP 302 vers le consentement.
+L’ouverture de cette destination sans l’état du 302 renvoyait HTTP 303 vers
+l’accueil. En conservant seulement SOCS/CONSENT fournis par ce 302, la destination
+retournait HTTP 200 avec quatre formulaires HTML. Le correctif installe donc cet
+état de consentement dans la fenêtre temporaire avant de charger la destination.
+Cela ne constitue pas un choix de l’utilisateur. Les valeurs en attente ne sont
+pas enregistrées comme préférences confirmées ; aucun cookie de compte/visite
+n’est copié. `youtube_consent_state_loaded` contient uniquement le nombre de
+cookies temporaires, jamais leurs valeurs. Les tests couvrent cet état en attente
+et le refus des cookies de compte, de visite et des réponses d’autres services.

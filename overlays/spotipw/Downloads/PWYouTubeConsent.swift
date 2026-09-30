@@ -49,8 +49,24 @@ final class PWYouTubeConsentController: UIViewController, WKNavigationDelegate {
         ]
         // Retain the provider's complete redirect, including its return destination.
         // Opening a fresh homepage can show a different flow with no cookie choices.
-        let target = PWYouTubeAccess.consentURL(request.target) ? request.target : PWYouTubeAccess.homepage(source: request.source)
-        web.load(URLRequest(url: target))
+        loadConsent(request)
+    }
+    private func loadConsent(_ consent: PWYouTubeConsentRequired) {
+        Task { [weak self] in
+            guard let self = self, !self.finished else { return }
+            // The redirect can include an unconfirmed SOCS/CONSENT state required
+            // to display its forms. Keep that state only in this temporary view.
+            // No visitor/login cookies and no fabricated consent values.
+            for cookie in consent.cookies where PWYouTubeAccess.consentState(cookie) {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    self.web.configuration.websiteDataStore.httpCookieStore.setCookie(cookie) { continuation.resume() }
+                }
+            }
+            guard !self.finished else { return }
+            let target = PWYouTubeAccess.consentURL(consent.target) ? consent.target : PWYouTubeAccess.homepage(source: consent.source)
+            self.web.load(URLRequest(url: target))
+            self.event("youtube_consent_state_loaded", consent.cookies.count)
+        }
     }
     @objc private func close() { finished = true; verification?.cancel(); dismiss(animated: true) }
     @objc private func reload() { web.reload() }
@@ -115,7 +131,7 @@ final class PWYouTubeConsentController: UIViewController, WKNavigationDelegate {
                 instructions.text = "Le téléchargement demande encore un choix de cookies. Touche Vérifier pour rouvrir la page Google reçue."
                 // A manual retry opens the actual new redirect; no automatic loop.
                 if showMessage {
-                    web.load(URLRequest(url: consent.target))
+                    loadConsent(consent)
                     notice("L’accès du téléchargement demande encore un choix. La page Google reçue vient d’être rouverte. Accepte ou refuse les cookies facultatifs, puis touche Vérifier.")
                 }
             } else {

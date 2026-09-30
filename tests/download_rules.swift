@@ -156,6 +156,14 @@ enum DownloadTests {
             check(PWYouTubeAccess.cookieHeader(for: URL(string: address)!, defaults: preferences, now: now) == nil, "preference never leaves public YouTube")
         }
         check(!PWYouTubeAccess.preference(cookie("CONSENT", "PENDING+123"), now: now), "pending choice is not a completed choice")
+        check(PWYouTubeAccess.consentState(cookie("CONSENT", "PENDING+123"), now: now), "pending provider state can bootstrap the temporary consent page")
+        let stateHeaders = ["Set-Cookie": "SOCS=provider-state; Domain=.youtube.com; Path=/; Secure; HttpOnly"]
+        let states = PWYouTubeAccess.consentState(headers: stateHeaders, from: URL(string: "https://music.youtube.com/")!, now: now)
+        check(states.count == 1 && states[0].value == "provider-state", "carry original redirect state without generating a consent choice")
+        for name in ["SID", "YSC", "VISITOR_INFO1_LIVE", "__Secure-YENID"] {
+            check(PWYouTubeAccess.consentState(headers: ["Set-Cookie": "\(name)=private; Domain=.youtube.com; Path=/; Secure"], from: URL(string: "https://music.youtube.com/")!, now: now).isEmpty, "never bootstrap account or visitor state")
+        }
+        check(PWYouTubeAccess.consentState(headers: stateHeaders, from: URL(string: "https://api.spotify.com/")!, now: now).isEmpty, "accept consent state only from public YouTube response")
         check(!PWYouTubeAccess.preference(cookie("SOCS", "x", domain: ".google.com"), now: now), "reject foreign cookie")
         check(!PWYouTubeAccess.preference(cookie("SOCS", "x", expires: now.addingTimeInterval(-1)), now: now), "reject expired preference")
         check(PWYouTubeAccess.cookieHeader(for: URL(string: "https://www.youtube.com/")!, defaults: preferences, now: now.addingTimeInterval(3601)) == nil, "saved preference expires")

@@ -25,12 +25,19 @@ enum PWYouTubeAccess {
         if publicHost(host) { return publicURL(url) }
         return url.host?.lowercased() == host
     }
-    static func preference(_ cookie: HTTPCookie, now: Date = Date()) -> Bool {
+    static func consentState(_ cookie: HTTPCookie, now: Date = Date()) -> Bool {
         ["SOCS", "CONSENT"].contains(cookie.name) &&
         ["youtube.com", ".youtube.com"].contains(cookie.domain.lowercased()) && cookie.path == "/" &&
-        !cookie.value.isEmpty && cookie.value.count <= 1024 && !cookie.value.uppercased().contains("PENDING") &&
+        !cookie.value.isEmpty && cookie.value.count <= 1024 &&
         !cookie.value.contains("\r") && !cookie.value.contains("\n") && !cookie.value.contains(";") &&
         (cookie.expiresDate == nil || cookie.expiresDate! > now)
+    }
+    static func consentState(headers: [String: String], from url: URL, now: Date = Date()) -> [HTTPCookie] {
+        guard publicURL(url) else { return [] }
+        return HTTPCookie.cookies(withResponseHeaderFields: headers, for: url).filter { consentState($0, now: now) }
+    }
+    static func preference(_ cookie: HTTPCookie, now: Date = Date()) -> Bool {
+        consentState(cookie, now: now) && !cookie.value.uppercased().contains("PENDING")
     }
     // Only the user's cookie preference is retained. Login and visitor cookies
     // from the isolated consent web view are never copied into downloader sessions.
@@ -62,6 +69,10 @@ enum PWYouTubeAccess {
 struct PWYouTubeConsentRequired: LocalizedError {
     let source: Int
     let target: URL
+    let cookies: [HTTPCookie]
+    init(source: Int, target: URL, cookies: [HTTPCookie] = []) {
+        self.source = source; self.target = target; self.cookies = cookies
+    }
     var errorDescription: String? {
         "YouTube a redirigé le téléchargement vers le consentement. Touche « Vérifier l’accès YouTube » dans la file. Accepte ou refuse les cookies facultatifs si la page le propose ; si YouTube s’affiche directement, touche Vérifier. La file reprendra uniquement après vérification de l’accès du téléchargement."
     }
