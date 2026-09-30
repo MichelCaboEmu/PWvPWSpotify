@@ -110,6 +110,9 @@ void PWPrepareNativeDownloads(UIView *row) {
     %init;
     [NSNotificationCenter.defaultCenter addObserverForName:@"PWDownloadDiagnostic" object:nil queue:nil usingBlock:^(NSNotification *note){
         NSString *event=note.userInfo[@"event"];
-        if([event isKindOfClass:NSString.class])PWEvent(@"download",event,[note.userInfo[@"code"] integerValue]);
+        if([event isKindOfClass:NSString.class]) {
+            NSDictionary *details = [note.userInfo[@"details"] isKindOfClass:NSDictionary.class] ? note.userInfo[@"details"] : nil;
+            PWEventDetails(@"download",event,[note.userInfo[@"code"] integerValue],details);
+        }
     }];
 }

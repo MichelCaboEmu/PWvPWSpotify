@@ -15,7 +15,7 @@ struct PWAudioCandidate {
     var duration: Double
 }
 
-// Stage names are fixed labels: logs never include a title, playlist ID or token.
+// Stage names are fixed labels; diagnostic details are sanitized separately.
 enum PWDownloadStage: String {
     case spotifyItems = "spotify_playlist_items", spotifyTracks = "spotify_playlist_tracks"
     case spotifyDocument = "spotify_playlist_document", spotifySaved = "spotify_saved_tracks"
@@ -107,27 +107,39 @@ enum PWDownloadRules {
     }
 
     static func words(_ text: String) -> [String] {
-        text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+        text.replacingOccurrences(of: "’", with: "").replacingOccurrences(of: "'", with: "").folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
             .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
     }
     static func phrase(_ needle: [String], in haystack: [String]) -> Bool {
         guard !needle.isEmpty, needle.count <= haystack.count else { return false }
         return (0...(haystack.count - needle.count)).contains { Array(haystack[$0..<($0 + needle.count)]) == needle }
     }
-    static func score(_ candidate: PWAudioCandidate, for track: PWAudioTrack) -> Int? {
-        guard identifier(candidate.id, length: 11), track.duration > 0, candidate.duration > 0,
-              abs(candidate.duration - track.duration) <= max(8, track.duration * 0.05) else { return nil }
-        let title = words(track.title), found = words(candidate.title)
-        guard phrase(title, in: found), phrase(words(track.artist), in: words(candidate.artist + " " + candidate.title)) else { return nil }
-        // Do not silently replace the requested recording with a cover/remix/live edit.
+    static func titleWords(_ text: String) -> [String] {
+        // Featured credits often differ between Spotify and YouTube. Keep all
+        // recording/version terms (live/remix/etc.), remove only bracketed credits.
+        let clean = text.replacingOccurrences(of: #"(?i)[\(\[]\s*(?:feat\.?|ft\.?|featuring)\s+[^\)\]]+[\)\]]"#,
+                                               with: "", options: .regularExpression)
+        return words(clean)
+    }
+    static func rejection(_ candidate: PWAudioCandidate, for track: PWAudioTrack) -> String? {
+        guard identifier(candidate.id, length: 11) else { return "identifier" }
+        guard track.duration.isFinite, candidate.duration.isFinite, track.duration > 0, candidate.duration > 0 else { return "missing_duration" }
+        guard abs(candidate.duration - track.duration) <= max(8, track.duration * 0.05) else { return "duration" }
+        let title = titleWords(track.title), found = titleWords(candidate.title)
+        guard phrase(title, in: found) else { return "title" }
+        guard phrase(words(track.artist), in: words(candidate.artist + " " + candidate.title)) else { return "artist" }
         for variant in ["live", "cover", "remix", "karaoke", "instrumental", "sped", "slowed", "nightcore", "acoustic"] {
-            if found.contains(variant) != title.contains(variant) { return nil }
+            if found.contains(variant) != title.contains(variant) { return "version" }
         }
-        return (title == found ? 100 : 70) - Int(abs(candidate.duration - track.duration))
+        return nil
+    }
+    static func score(_ candidate: PWAudioCandidate, for track: PWAudioTrack) -> Int? {
+        guard rejection(candidate, for: track) == nil else { return nil }
+        return (titleWords(track.title) == titleWords(candidate.title) ? 100 : 70) - Int(abs(candidate.duration - track.duration))
     }
     static func seconds(_ text: String) -> Double {
-        let parts = text.split(separator: ":")
-        guard (2...3).contains(parts.count), parts.allSatisfy({ Int($0) != nil }) else { return 0 }
+        let parts = text.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ":")
+        guard (2...3).contains(parts.count), parts.allSatisfy({ Int($0) != nil && Int($0)! >= 0 }), parts.dropFirst().allSatisfy({ Int($0)! < 60 }) else { return 0 }
         return parts.reduce(0) { $0 * 60 + (Double($1) ?? 0) }
     }
     static func text(_ object: Any?) -> String {
@@ -135,36 +147,72 @@ enum PWDownloadRules {
         if let simple = object["simpleText"] as? String { return simple }
         return (object["runs"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined()
     }
+    static func nested(_ object: Any?, _ path: [String]) -> Any? {
+        path.reduce(object) { value, key in (value as? [String: Any])?[key] }
+    }
+    static func durationText(_ value: String) -> Double {
+        let pattern = #"(?<![0-9])(?:[0-9]{1,2}:)?[0-9]{1,3}:[0-5][0-9](?![0-9])"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.matches(in: value, range: NSRange(value.startIndex..., in: value)).last,
+              let range = Range(match.range, in: value) else { return 0 }
+        return seconds(String(value[range]))
+    }
+    static func rendererCounts(_ json: Any) -> String {
+        var counts: [String: Int] = [:], visited = 0
+        func walk(_ node: Any, _ depth: Int) {
+            guard depth < 40, visited < 10000 else { return }; visited += 1
+            if let array = node as? [Any] { for value in array { walk(value, depth + 1) } }
+            if let dict = node as? [String: Any] {
+                for (key, value) in dict {
+                    if key.hasSuffix("Renderer") { counts[key, default: 0] += 1 }
+                    walk(value, depth + 1)
+                }
+            }
+        }
+        walk(json, 0)
+        return counts.keys.sorted().prefix(20).map { "\($0)=\(counts[$0]!)" }.joined(separator: ", ")
+    }
     static func candidates(_ json: Any, music: Bool) -> [PWAudioCandidate] {
         var result: [PWAudioCandidate] = []
         func walk(_ node: Any, depth: Int) {
             guard depth < 40, result.count < 100 else { return }
             if let array = node as? [Any] { for item in array { walk(item, depth: depth + 1) }; return }
             guard let dict = node as? [String: Any] else { return }
-            if music, let item = dict["musicResponsiveListItemRenderer"] as? [String: Any],
-               let data = item["playlistItemData"] as? [String: Any], let id = data["videoId"] as? String {
+            if music, let item = dict["musicResponsiveListItemRenderer"] as? [String: Any] {
                 let columns = item["flexColumns"] as? [[String: Any]] ?? []
-                func column(_ i: Int) -> String {
-                    guard i < columns.count, let col = columns[i]["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any] else { return "" }
-                    return text(col["text"])
+                let fields = columns.map { text(nested($0, ["musicResponsiveListItemFlexColumnRenderer", "text"])) }
+                // Search rows use the overlay's play endpoint; playlistItemData
+                // is only one of the possible shapes, not a required search field.
+                let endpointID = nested(item, ["overlay", "musicItemThumbnailOverlayRenderer", "content", "musicPlayButtonRenderer", "playNavigationEndpoint", "watchEndpoint", "videoId"])
+                let id = nested(item, ["playlistItemData", "videoId"]) as? String ?? endpointID as? String ?? nested(item, ["navigationEndpoint", "watchEndpoint", "videoId"]) as? String
+                if let id = id, let title = fields.first, !title.isEmpty {
+                    let fixed = item["fixedColumns"] as? [[String: Any]] ?? []
+                    let fixedDuration = fixed.map { durationText(text(nested($0, ["musicResponsiveListItemFixedColumnRenderer", "text"]))) }.first { $0 > 0 } ?? 0
+                    let details = fields.dropFirst().joined(separator: " • ")
+                    result.append(PWAudioCandidate(id: id, title: title, artist: details,
+                        duration: fixedDuration > 0 ? fixedDuration : durationText(details)))
                 }
-                let fixed = item["fixedColumns"] as? [[String: Any]] ?? []
-                let time = fixed.first?["musicResponsiveListItemFixedColumnRenderer"] as? [String: Any]
-                let details = column(1)
-                let duration = seconds(text(time?["text"]))
-                let alternative = details.components(separatedBy: " • ").compactMap { seconds($0) > 0 ? seconds($0) : nil }.last ?? 0
-                result.append(PWAudioCandidate(id: id, title: column(0), artist: details, duration: duration > 0 ? duration : alternative))
                 return
+            }
+            if music, let item = dict["musicCardShelfRenderer"] as? [String: Any],
+               let id = nested(item, ["onTap", "watchEndpoint", "videoId"]) as? String {
+                let details = text(item["subtitle"])
+                result.append(PWAudioCandidate(id: id, title: text(item["title"]), artist: details, duration: durationText(details)))
+                // Also inspect the shelf's extra rows.
             }
             if !music, let item = dict["videoRenderer"] as? [String: Any], let id = item["videoId"] as? String {
-                result.append(PWAudioCandidate(id: id, title: text(item["title"]), artist: text(item["ownerText"] ?? item["longBylineText"]), duration: seconds(text(item["lengthText"]))))
+                result.append(PWAudioCandidate(id: id, title: text(item["title"]), artist: text(item["ownerText"] ?? item["longBylineText"] ?? item["shortBylineText"]), duration: durationText(text(item["lengthText"]))))
                 return
             }
-            for value in dict.values { walk(value, depth: depth + 1) }
+            for key in dict.keys.sorted() { walk(dict[key]!, depth: depth + 1) }
         }
         walk(json, depth: 0)
-        var seen = Set<String>()
-        return result.filter { seen.insert($0.id).inserted }
+        var resultByID: [String: PWAudioCandidate] = [:], order: [String] = []
+        for item in result {
+            if resultByID[item.id] == nil { order.append(item.id) }
+            if resultByID[item.id] == nil || (resultByID[item.id]!.duration == 0 && item.duration > 0) { resultByID[item.id] = item }
+        }
+        return order.compactMap { resultByID[$0] }
     }
     static func tracks(_ items: [[String: Any]]) -> [PWAudioTrack] {
         items.compactMap { item in
@@ -184,5 +232,37 @@ enum PWDownloadRules {
     static func mediaURL(_ url: URL) -> Bool {
         let host = url.host?.lowercased() ?? ""
         return url.scheme == "https" && url.user == nil && url.password == nil && (host == "googlevideo.com" || host.hasSuffix(".googlevideo.com"))
+    }
+}
+
+// Detailed diagnostics contain useful metadata, never raw headers/response bodies.
+enum PWDownloadLog {
+    static func clean(_ text: String) -> String {
+        var value = text
+        for pattern in [#"(?i)(?:https?|file)://[^\s\"<>]+"#,
+                        #"(?i)Bearer\s+[^\s,;\"]+"#,
+                        #"(?i)(?:access_token|refresh_token|authorization|cookie|SOCS|CONSENT)["']?\s*[:=]\s*["']?[^\s,;"'}]+"#] {
+            value = value.replacingOccurrences(of: pattern, with: "[redacted]", options: .regularExpression)
+        }
+        return String(value.prefix(800))
+    }
+    static func fields(_ details: [String: Any]) -> [String: Any] {
+        var result: [String: Any] = [:]
+        for (key, value) in details.prefix(40) {
+            guard !["authorization", "cookie", "set-cookie", "access_token", "refresh_token", "url", "headers", "body"].contains(key.lowercased()) else { continue }
+            if let text = value as? String { result[key] = clean(text) }
+            else if let number = value as? NSNumber, number.doubleValue.isFinite { result[key] = number }
+        }
+        return result
+    }
+    static func error(_ error: Error) -> [String: Any] {
+        let ns = error as NSError
+        var fields: [String: Any] = ["error_type": String(reflecting: type(of: error)), "error_domain": ns.domain,
+                                   "error_code": ns.code, "error_message": ns.localizedDescription]
+        if let cause = ns.userInfo[NSUnderlyingErrorKey] as? NSError {
+            fields["underlying_domain"] = cause.domain; fields["underlying_code"] = cause.code
+            fields["underlying_message"] = cause.localizedDescription
+        }
+        return Self.fields(fields)
     }
 }

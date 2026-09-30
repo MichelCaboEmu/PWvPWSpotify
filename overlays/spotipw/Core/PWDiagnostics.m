@@ -3,6 +3,7 @@
 #import <UIKit/UIKit.h>
 #import <Security/Security.h>
 #import <MetricKit/MetricKit.h>
+#import <math.h>
 
 static dispatch_queue_t queue;
 static NSString *directory;
@@ -12,15 +13,16 @@ static NSString *path(NSString *name) { return [directory stringByAppendingPathC
 static void diagnosticSync(dispatch_block_t block) {
     if (dispatch_get_specific(queueKey)) block(); else dispatch_sync(queue, block);
 }
-static void writeEvent(NSString *category, NSString *code, NSInteger status) {
+static void writeEvent(NSString *category, NSString *code, NSInteger status, NSDictionary *details) {
     NSString *file = path(@"events.jsonl");
     unsigned long long size = [[NSFileManager.defaultManager attributesOfItemAtPath:file error:nil] fileSize];
-    if (size > 256 * 1024) {
+    if (size > 512 * 1024) {
         [NSFileManager.defaultManager removeItemAtPath:path(@"previous.jsonl") error:nil];
         [NSFileManager.defaultManager moveItemAtPath:file toPath:path(@"previous.jsonl") error:nil];
     }
-    NSDictionary *event = @{@"time": @([NSDate.date timeIntervalSince1970]), @"category":category,
-                            @"event":code, @"status":@(status)};
+    NSMutableDictionary *event = [@{@"time": @([NSDate.date timeIntervalSince1970]), @"category":category,
+                            @"event":code, @"status":@(status)} mutableCopy];
+    if (details.count) event[@"details"] = details;
     NSMutableData *data = [[NSJSONSerialization dataWithJSONObject:event options:0 error:nil] mutableCopy];
     [data appendData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]];
     if (![NSFileManager.defaultManager fileExistsAtPath:file]) [NSData.data writeToFile:file atomically:YES];
@@ -29,8 +31,21 @@ static void writeEvent(NSString *category, NSString *code, NSInteger status) {
     @catch (NSException *exception) { /* Logging must never crash playback. */ }
 }
 void PWEvent(NSString *category, NSString *code, NSInteger status) {
+    PWEventDetails(category, code, status, nil);
+}
+void PWEventDetails(NSString *category, NSString *code, NSInteger status, NSDictionary *details) {
     if (!queue) return;
-    dispatch_async(queue, ^{ writeEvent(category, code, status); });
+    // Only bounded scalar fields reach the JSON writer. Never serialize arbitrary objects.
+    NSMutableDictionary *safe = [NSMutableDictionary dictionary];
+    for (id key in details) {
+        if (safe.count >= 40) break;
+        if (![key isKindOfClass:NSString.class] || [key length] > 64) continue;
+        id value = details[key];
+        if ([value isKindOfClass:NSString.class]) safe[key] = [value substringWithRange:[value rangeOfComposedCharacterSequencesForRange:NSMakeRange(0, MIN([value length], 800u))]];
+        else if ([value isKindOfClass:NSNumber.class] && isfinite([value doubleValue])) safe[key] = value;
+    }
+    NSDictionary *snapshot = [safe copy];
+    dispatch_async(queue, ^{ writeEvent(category, code, status, snapshot); });
 }
 static void uncaught(NSException *exception) {
     // No exception reason: it can contain URLs, account details or response bodies.
@@ -45,7 +60,7 @@ NSString *PWDiagnosticSnapshot(void) {
     __block NSMutableString *result;
     diagnosticSync(^{
         NSDictionary *bundle = NSBundle.mainBundle.infoDictionary;
-        result = [NSMutableString stringWithFormat:@"PWvPWSpotify diagnostics\nBuild: %s\nSpotify: %@ (%@)\niOS: %@\nLow power: %d\nReduce motion: %d\n\n",
+        result = [NSMutableString stringWithFormat:@"PWvPWSpotify diagnostics\nDiagnostics schema: 2\nBuild: %s\nSpotify: %@ (%@)\niOS: %@\nLow power: %d\nReduce motion: %d\n\n",
             PW_BUILD_SHA, bundle[@"CFBundleShortVersionString"], bundle[@"CFBundleVersion"],
             UIDevice.currentDevice.systemVersion, NSProcessInfo.processInfo.lowPowerModeEnabled,
             UIAccessibilityIsReduceMotionEnabled()];

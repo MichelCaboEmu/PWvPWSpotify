@@ -62,6 +62,7 @@ enum PWYouTubeAccess {
     }
     static func apply(to request: inout URLRequest) {
         guard let url = request.url, publicURL(url) else { return }
+        request.timeoutInterval = 25
         request.httpShouldHandleCookies = false
         request.setValue(cookieHeader(for: url), forHTTPHeaderField: "Cookie")
     }

@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
-// Call sites pass fixed category/code strings and a numeric status, never user data.
+// Categories/codes are fixed. Detailed download fields are sanitized by PWDownloadLog.
 void PWEvent(NSString *category, NSString *code, NSInteger status);
+void PWEventDetails(NSString *category, NSString *code, NSInteger status, NSDictionary *details);
 NSString *PWDiagnosticSnapshot(void);
 void PWClearDiagnostics(void);
 NSString *PWSecret(NSString *name);

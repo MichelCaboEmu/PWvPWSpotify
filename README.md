@@ -77,7 +77,11 @@ Choisir le dossier avec Fichiers, ou conserver **Spotify Downloads** dans les
 documents de Spotify. Les fichiers existants sont préservés. La file indique les
 erreurs et permet de reprendre ; après fermeture de l’app, elle reste en pause
 jusqu’à une reprise manuelle. Retirer une playlist de la file laisse ses fichiers
-en place. Source et dossier s’appliquent aux prochaines playlists ajoutées.
+en place. Le bouton **Vider** arrête le travail et retire toute la file, sans
+supprimer les M4A déjà enregistrés. Ouvrir la flèche d’une autre playlist met les
+anciennes en pause, même si la nouvelle playlist ne peut pas être chargée.
+Source et dossier s’appliquent aux prochaines playlists ajoutées ; réouvrir la
+flèche d’une playlist existante applique également la source choisie.
 
 Ces fichiers sont lisibles dans Fichiers ou une autre application, **pas dans le
 cache hors ligne du lecteur Spotify**. Garde l’app ouverte pendant le traitement.
@@ -160,9 +164,13 @@ un repère temporel. **Effacer les journaux** supprime les événements enregist
 Rien n’est envoyé automatiquement.
 
 Le fichier contient le commit de compilation, les versions, les transitions de
-l’application, les étapes des fournisseurs et leurs codes d’erreur. Les événements
-ne recopient ni jetons, ni URL de requêtes, ni titres, ni paroles. Rotation des
-journaux à 256 Kio, avec une seule archive. Les exceptions Objective-C non gérées
+l’application, les étapes des fournisseurs et leurs erreurs détaillées. Les
+événements de téléchargement incluent le nom de la playlist, le titre/artiste,
+la durée attendue, les candidats proposés, les motifs de rejet, les durées des
+requêtes et les erreurs sous-jacentes. L’export ajoute l’état actuel de la file,
+y compris les tâches en cours et les erreurs, même après un effacement du journal.
+Les jetons, cookies et URL sont masqués ; les corps de réponses, les en-têtes
+réseau et les paroles ne sont pas copiés. Rotation à 512 Kio, avec une seule archive. Les exceptions Objective-C non gérées
 conservent leurs adresses de pile sans leur message ; MetricKit ajoute les rapports
 de crash qu’iOS livre à l’application, avec des données techniques de l’appareil.
 Ce mécanisme ne capture pas tous les crashs, arrêts forcés ou arrêts mémoire.

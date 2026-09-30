@@ -20,6 +20,7 @@ static void notice(NSString *title,NSString *message){
     [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];[top() presentViewController:alert animated:YES completion:nil];
 }
 static void exportLogs(void){
+    [PWDownloadsBridge recordDiagnostics];
     PWEvent(@"diagnostics",@"export_requested",0);
     NSString *report=PWDiagnosticSnapshot();
     NSString *folder=[NSTemporaryDirectory() stringByAppendingPathComponent:@"PWExport"];
@@ -48,7 +49,7 @@ SGModRow *PWDiagnosticsRow(void){
                 SGActionRow(@"Effacer les journaux",nil,^{PWClearDiagnostics();notice(@"Journaux effacés",@"Les prochains événements seront enregistrés.");})]),
             SGSection(@"Animation",@[SGStatRow(@"Source / état",^NSString *{return PWArtworkEngineStatus();}),
                 SGActionRow(@"Relancer l’animation",@"Réessaie en respectant la priorité choisie",^{PWRetryArtwork();})])
-        ] footer:@"Les journaux contiennent la version, l’état de lecture technique et les erreurs des fournisseurs, sans jetons ni contenu des paroles. Les rapports de crash reçus d’iOS peuvent inclure des informations techniques sur l’appareil et les piles d’appels. Certains crashs et arrêts mémoire nécessitent le rapport .ips de Réglages iOS → Confidentialité et sécurité → Analyse et améliorations → Données d’analyse. Les rapports iOS peuvent arriver au lancement suivant."];
+        ] footer:@"Les journaux contiennent la version, les playlists et titres concernés, les étapes, les correspondances proposées et les erreurs détaillées. Les jetons, cookies et URL de téléchargement sont masqués ; le contenu des paroles n’est pas enregistré. Les rapports de crash reçus d’iOS peuvent inclure des informations techniques sur l’appareil et les piles d’appels. Certains crashs et arrêts mémoire nécessitent le rapport .ips de Réglages iOS → Confidentialité et sécurité → Analyse et améliorations → Données d’analyse. Les rapports iOS peuvent arriver au lancement suivant."];
     }),@"doc.text.magnifyingglass");
 }
 SGModRow *PWDownloadsSettingsRow(void){

@@ -107,6 +107,56 @@ enum DownloadTests {
         check(found.count == 1 && found[0].duration == 202, "music parsing and deduplication")
         check(PWDownloadRules.score(found[0], for: track) != nil, "music candidate matching")
         check(PWDownloadRules.candidates(["error": NSNull()], music: true).isEmpty, "malformed provider response")
+        // Search responses do not necessarily contain playlistItemData. The play
+        // endpoint and an extra flex column are used by current Music search rows.
+        let searchRow: [String: Any] = ["musicResponsiveListItemRenderer": [
+            "overlay": ["musicItemThumbnailOverlayRenderer": ["content": ["musicPlayButtonRenderer": [
+                "playNavigationEndpoint": ["watchEndpoint": ["videoId": exact.id]]]]]],
+            "flexColumns": [
+                ["musicResponsiveListItemFlexColumnRenderer": ["text": ["runs": [["text": "La Verite"]]]]],
+                ["musicResponsiveListItemFlexColumnRenderer": ["text": ["runs": [["text": "Elodie"]]]]],
+                ["musicResponsiveListItemFlexColumnRenderer": ["text": ["runs": [["text": "Album • 3:22"]]]]]]]]
+        let searched = PWDownloadRules.candidates(["contents": [searchRow]], music: true)
+        check(searched.count == 1 && searched[0].id == exact.id && searched[0].duration == 202, "parse overlay ID and third duration column without playlistItemData")
+        check(PWDownloadRules.score(searched[0], for: track) != nil, "match current Music search shape")
+        let card: [String: Any] = ["musicCardShelfRenderer": ["onTap": ["watchEndpoint": ["videoId": exact.id]],
+            "title": ["simpleText": "La Verite"], "subtitle": ["simpleText": "Elodie"], "contents": [searchRow]]]
+        let deduplicated = PWDownloadRules.candidates(card, music: true)
+        check(deduplicated.count == 1 && deduplicated[0].duration == 202, "prefer complete row over duplicate card without duration")
+        check(PWDownloadRules.rendererCounts(card).contains("musicResponsiveListItemRenderer=1"), "report response shapes without dumping content")
+        check(PWDownloadRules.seconds("3:99") == 0, "reject invalid seconds")
+        check(PWDownloadRules.durationText("Elodie • Album • 3:22") == 202, "duration tolerates nonbreaking separators")
+        var featured = track; featured.title += " (feat. Autre)"
+        check(PWDownloadRules.score(exact, for: featured) != nil, "featured credits need not be repeated in candidate title")
+        var apostrophe = track; apostrophe.title = "L’amour"
+        var plainApostrophe = exact; plainApostrophe.title = "Lamour"
+        check(PWDownloadRules.score(plainApostrophe, for: apostrophe) != nil, "normalize apostrophe spelling")
+        var mismatch = exact; mismatch.duration = .nan
+        check(PWDownloadRules.rejection(mismatch, for: track) == "missing_duration", "non-finite metadata rejected without integer conversion")
+        mismatch = exact; mismatch.title += " live"
+        check(PWDownloadRules.rejection(mismatch, for: track) == "version", "diagnose different recording")
+        mismatch = exact; mismatch.artist = "Another artist"
+        check(PWDownloadRules.rejection(mismatch, for: track) == "artist", "diagnose wrong artist")
+        let secretText = #"Failed https://media.test/audio?sig=secret Authorization: Bearer abc SOCS=private {"access_token":"hidden"}"#
+        let sanitized = PWDownloadLog.clean(secretText)
+        for secret in ["media.test", "sig=secret", "abc", "private", "hidden"] {
+            check(!sanitized.contains(secret), "redact URL, bearer and preference values")
+        }
+        check(PWDownloadLog.clean("La vérité — Élodie") == "La vérité — Élodie", "retain useful song metadata")
+        check(PWDownloadLog.clean(String(repeating: "a", count: 2000)).count == 800, "bound diagnostic messages")
+        let diagnostic = PWDownloadLog.error(NSError(domain: "outer", code: 7, userInfo: [
+            NSLocalizedDescriptionKey: "Search failed", NSUnderlyingErrorKey: NSError(domain: NSURLErrorDomain, code: -1009)]))
+        check(diagnostic["error_domain"] as? String == "outer" && diagnostic["underlying_code"] as? Int == -1009, "preserve real error and underlying cause")
+        check(PWDownloadLog.fields(["authorization": "secret", "duration": Double.nan]).isEmpty, "omit sensitive keys and non-JSON numbers")
+        header.entityModel.metadata.isLoaded = true
+        header.entityModel.tracks.items = Array(repeating: .unloaded(0), count: 208)
+        header.entityModel.tracks.loadedItemCount = 119
+        header.entityModel.tracks.unrangedLength = 208
+        header.entityModel.tracks.unfilteredLength = 209
+        var partialEvents: [String] = []
+        let partial = PWNativePlaylist.read(header: header, requestedURI: playlistURI) { partialEvents.append($0); _ = $1 }
+        check(partial?.complete == false && partial?.problem?.contains("119") == true && partial?.problem?.contains("208") == true, "explain device's actual loading deficit")
+        check(partialEvents.contains("native_list_partial") && !partialEvents.contains("native_list_filtered"), "partial loading is not reported solely as a filter")
         let item: [String: Any] = ["type": "track", "id": id, "name": "La vérité", "artists": [["name": "Élodie"]], "duration_ms": 200000.0]
         check(PWDownloadRules.tracks([["item": item]]).count == 1, "new playlist item shape")
         check(PWDownloadRules.tracks([["track": item]]).count == 1, "legacy playlist item shape")

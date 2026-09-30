@@ -9,6 +9,7 @@ void PWPrepareNativeDownloads(UIView *row);
 @interface PWDownloadsBridge : NSObject
 + (NSString *)folderName;
 + (NSString *)summary;
++ (void)recordDiagnostics;
 + (void)presentFrom:(UIViewController *)controller playlistURI:(NSString *)uri title:(NSString *)title authorization:(NSString *)authorization;
 + (void)presentFrom:(UIViewController *)controller playlistURI:(NSString *)uri title:(NSString *)title authorization:(NSString *)authorization nativeModel:(id)model;
 + (void)chooseFolderFrom:(UIViewController *)controller;

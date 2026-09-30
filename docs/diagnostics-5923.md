@@ -136,3 +136,44 @@ pas enregistrées comme préférences confirmées ; aucun cookie de compte/visit
 n’est copié. `youtube_consent_state_loaded` contient uniquement le nombre de
 cookies temporaires, jamais leurs valeurs. Les tests couvrent cet état en attente
 et le refus des cookies de compte, de visite et des réponses d’autres services.
+
+## Retour appareil sur 2d023e6 : file persistante et erreurs sans contexte
+
+Le relevé montre 119 éléments chargés, 208 éléments affichés et 209 annoncés.
+Le défaut de chargement est maintenant signalé avant une éventuelle différence
+de filtrage. Les trois 404 Spotify empêchent toujours d’obtenir la liste complète
+par l’API ; ce relevé ne démontre pas une recherche YouTube de la nouvelle playlist.
+Les événements audio sans contexte ne permettaient pas d’identifier leur playlist.
+
+La sélection d’une nouvelle playlist met immédiatement les autres en pause.
+L’annulation invalide également la génération d’import : une réponse tardive ne
+peut plus réinsérer une playlist vidée ou remplacer l’état d’un nouvel import.
+**Vider** annule l’import et le traitement, supprime les entrées et l’état de
+consentement en attente, tout en gardant les fichiers déjà sauvegardés. Les
+requêtes de l’extracteur vérifient l’annulation et utilisent un délai de 25 s.
+La file affiche séparément recherche, extraction, téléchargement et vérification.
+
+Le parseur de recherche Music exigeait `playlistItemData.videoId`. Les résultats
+peuvent utiliser `overlay.musicItemThumbnailOverlayRenderer.content.musicPlayButtonRenderer.playNavigationEndpoint.watchEndpoint.videoId`.
+La durée peut aussi être dans la troisième colonne flexible. Ces formes, les
+cartes de résultat et la préférence d’un doublon avec durée sont prises en charge.
+Le filtre chansons a été comparé au code de référence :
+https://github.com/sigma67/ytmusicapi/blob/main/ytmusicapi/parsers/search.py
+et les chemins de navigation à :
+https://github.com/sigma67/ytmusicapi/blob/main/ytmusicapi/navigation.py
+Les apostrophes et crédits invités entre parenthèses sont normalisés ; artiste,
+durée et variantes (live, remix, etc.) restent vérifiés.
+
+Diagnostics schéma 2 : contexte playlist/job/titre/artiste, durée, source,
+étape, nombre de candidats reconnus et acceptés, compteurs des motifs de rejet,
+cinq exemples de candidats, format des renderers, type/domaine/code/message de
+l’erreur et cause sous-jacente. Les erreurs structurées du fournisseur ne sont
+plus confondues avec une recherche vide. L’export ajoute `queue_snapshot`,
+`queue_job` et `queue_item` pour les travaux actifs/échoués. Les corps réseau,
+les en-têtes et les cookies bruts ne sont pas exportés ; les URL et secrets sont
+masqués, les messages bornés et les fichiers limités à deux fois 512 Kio environ.
+
+À vérifier sur l’iPhone : recherche d’un titre qui échouait, passage à une autre
+playlist pendant la recherche, puis Vider pendant un import ou une extraction.
+La playlist de 209 éléments reste refusée tant que son modèle n’est pas complet ;
+aucun sous-ensemble n’est présenté comme la playlist entière.

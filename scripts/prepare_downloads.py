@@ -17,11 +17,16 @@ def apply(root, sg, change):
     # Carry only the user's YouTube cookie preference into the local extractor.
     # OAuth/session cookies stay untouched; the fusion invokes useOAuth=false.
     change(vendor / 'YouTube.swift', 'request.httpShouldHandleCookies = false',
-           'request.httpShouldHandleCookies = false\n            PWYouTubeAccess.apply(to: &request)', count=2)
+           'request.httpShouldHandleCookies = false\n            PWYouTubeAccess.apply(to: &request)\n            try Task.checkCancellation()', count=2)
     change(vendor / 'InnerTube.swift', 'let (responseData, _) = try await URLSession.shared.data(for: request)',
-           'PWYouTubeAccess.apply(to: &request)\n        let (responseData, _) = try await URLSession.shared.data(for: request)')
-    # These logs can contain URLs and search terms. Our separate diagnostic events contain only codes.
-    # Other than explicit preference/resource routing patches, preserve the extractor.
+           'PWYouTubeAccess.apply(to: &request)\n        try Task.checkCancellation()\n        let (responseData, _) = try await URLSession.shared.data(for: request)')
+    change(vendor / 'YouTube.swift', 'let (data, _) = try await URLSession.shared.data(from: jsURL)',
+           'try Task.checkCancellation()\n                var scriptRequest = URLRequest(url: jsURL, timeoutInterval: 25)\n'
+           '                PWYouTubeAccess.apply(to: &scriptRequest)\n'
+           '                let (data, _) = try await URLSession.shared.data(for: scriptRequest)')
+    change(vendor / 'Extensions/Retry.swift', 'for method in methods {',
+           'for method in methods {\n            try Task<Never, Never>.checkCancellation()')
+    # The app emits structured diagnostics instead of raw upstream URLs/bodies.
     for path in vendor.rglob('*.swift'):
         text = path.read_text()
         import re

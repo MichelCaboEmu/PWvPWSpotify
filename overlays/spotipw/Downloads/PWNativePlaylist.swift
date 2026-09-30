@@ -54,13 +54,15 @@ struct PWNativePlaylist {
             return PWNativePlaylist(tracks: [], total: max(0, total), problem: "Les compteurs de la liste Spotify sont incohérents ou dépassent 10 000 éléments. Aucun téléchargement n’a démarré. Exporte les logs pour le diagnostic.")
         }
         if headerTotal != total { report("native_header_count_ignored", headerTotal) }
+        // Partial loading and filtered/hidden items are independent conditions.
+        // Report the loading deficit first instead of blaming filters alone.
+        guard items.count == unranged, loaded == unranged else {
+            report("native_list_partial", 0)
+            return PWNativePlaylist(tracks: [], total: total, problem: "Spotify n’a chargé que \(loaded) éléments sur \(unranged) affichés (\(total) annoncés au total). Fais défiler la playlist pour charger ses titres, puis réessaie. Si les compteurs diffèrent encore, vérifie la recherche, les filtres et les titres indisponibles. Aucun téléchargement partiel n’a été lancé.")
+        }
         guard unfiltered == unranged else {
             report("native_list_filtered", 0)
-            return PWNativePlaylist(tracks: [], total: total, problem: "La liste Spotify contient \(unranged) éléments après filtrage sur \(total) au total. Désactive la recherche et les filtres de la playlist, puis réessaie la flèche.")
-        }
-        guard items.count == total, loaded == total else {
-            report("native_list_partial", 0)
-            return PWNativePlaylist(tracks: [], total: total, problem: "Spotify n’a chargé que \(loaded) éléments sur \(total). Fais défiler la playlist pour charger ses titres, puis réessaie. Aucun téléchargement partiel n’a été lancé.")
+            return PWNativePlaylist(tracks: [], total: total, problem: "La liste affichée contient \(unranged) éléments sur \(total) annoncés. Vérifie la recherche, les filtres et les titres masqués ou indisponibles, puis réessaie la flèche. La liste complète n’est pas encore accessible.")
         }
         var result: [PWAudioTrack] = []
         for item in items {
