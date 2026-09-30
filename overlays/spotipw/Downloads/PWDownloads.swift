@@ -24,7 +24,7 @@ extension Bundle {
 }
 
 // Separate sessions ensure the Spotify bearer never reaches the audio/search provider.
-private final class PWDownloadHTTP: NSObject, URLSessionTaskDelegate {
+final class PWDownloadHTTP: NSObject, URLSessionTaskDelegate {
     private let host: String?
     init(host: String?) { self.host = host }
     lazy var session: URLSession = {
@@ -56,7 +56,7 @@ private final class PWDownloadHTTP: NSObject, URLSessionTaskDelegate {
         let data: Data, response: URLResponse
         var prepared = request
         if let host = host, PWYouTubeAccess.publicHost(host) {
-            prepared.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+            prepared.setValue(PWYouTubeAccess.userAgent, forHTTPHeaderField: "User-Agent")
             PWYouTubeAccess.apply(to: &prepared)
         }
         do { (data, response) = try await session.data(for: prepared) }
@@ -68,7 +68,7 @@ private final class PWDownloadHTTP: NSObject, URLSessionTaskDelegate {
                let location = http.value(forHTTPHeaderField: "Location"),
                let target = URL(string: location, relativeTo: http.url)?.absoluteURL,
                PWYouTubeAccess.consentURL(target) {
-                throw PWYouTubeConsentRequired(source: stage.rawValue.hasPrefix("youtube_music") ? 0 : 1)
+                throw PWYouTubeConsentRequired(source: stage.rawValue.hasPrefix("youtube_music") ? 0 : 1, target: target)
             }
             throw PWDownloadHTTPError(stage: stage, status: http.statusCode)
         }
@@ -148,7 +148,8 @@ private final class PWDownloadStore {
     var jobs: [PWDownloadJob] = []
     var importing = false
     var importError: String?
-    var consentSource: Int?
+    var consentRequest: PWYouTubeConsentRequired?
+    var consentSource: Int? { consentRequest?.source }
     private var consentJobIDs = Set<String>()
     private var worker: Task<Void, Never>?
     private var importer: Task<Void, Never>?
@@ -271,8 +272,8 @@ private final class PWDownloadStore {
     }
     func consentCompleted() {
         let ids = consentJobIDs
-        consentJobIDs.removeAll(); consentSource = nil; searchConfigs.removeAll()
-        pwEvent("youtube_consent_saved")
+        consentJobIDs.removeAll(); consentRequest = nil; searchConfigs.removeAll()
+        pwEvent("youtube_access_resumed")
         for id in ids { resume(id) }
         changed()
     }
@@ -308,7 +309,7 @@ private final class PWDownloadStore {
                     pwEvent(cancelled ? "audio_paused" : "audio_failed", (error as NSError).code)
                     if cancelled { break }
                     if let consent = error as? PWYouTubeConsentRequired {
-                        consentSource = consent.source
+                        consentRequest = consent
                         // Resume only the jobs affected by this consent pause.
                         for index in jobs.indices where !jobs[index].paused {
                             consentJobIDs.insert(jobs[index].id)
@@ -545,8 +546,8 @@ private final class PWDownloadQueueController: UITableViewController {
         cell.detailTextLabel?.adjustsFontForContentSizeCategory = true
         if indexPath.section == 0 {
             if indexPath.row == 1 {
-                cell.textLabel?.text = "Choisir les cookies YouTube"
-                cell.detailTextLabel?.text = "Fais ton choix sur la page Google. La file reprendra après validation."
+                cell.textLabel?.text = "Vérifier l’accès YouTube"
+                cell.detailTextLabel?.text = "Choisis les cookies si Google le propose. Si YouTube s’affiche directement, touche Vérifier."
                 cell.imageView?.image = UIImage(systemName: "globe")
                 cell.accessoryType = .disclosureIndicator; return cell
             }
@@ -579,11 +580,11 @@ private final class PWDownloadQueueController: UITableViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard indexPath.section > 0 else {
-            if indexPath.row == 1, let source = store.consentSource {
-                let consent = PWYouTubeConsentController(source: source) { [weak self] in self?.store.consentCompleted() }
+            if indexPath.row == 1, let request = store.consentRequest {
+                let consent = PWYouTubeConsentController(request: request) { [weak self] in self?.store.consentCompleted() }
                 let navigation = UINavigationController(rootViewController: consent)
                 navigation.overrideUserInterfaceStyle = .dark
-                present(navigation, animated: true); pwEvent("youtube_consent_opened", source)
+                present(navigation, animated: true); pwEvent("youtube_consent_opened", request.source)
                 return
             }
             if let error = store.importError {

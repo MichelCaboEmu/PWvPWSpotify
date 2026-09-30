@@ -3,6 +3,12 @@ import Foundation
 // Public YouTube endpoints only. Spotify and media sessions retain their own policy.
 enum PWYouTubeAccess {
     static let preferenceKey = "spotifyglass.download.youtubePreferences"
+    // Use the same browser identity for the public API configuration and its
+    // consent window. The native extractor keeps its own client identities.
+    static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15"
+    static func homepage(source: Int) -> URL {
+        URL(string: source == 0 ? "https://music.youtube.com/" : "https://www.youtube.com/")!
+    }
     static func secure(_ url: URL) -> Bool {
         url.scheme?.lowercased() == "https" && url.user == nil && url.password == nil && (url.port == nil || url.port == 443)
     }
@@ -55,7 +61,8 @@ enum PWYouTubeAccess {
 }
 struct PWYouTubeConsentRequired: LocalizedError {
     let source: Int
+    let target: URL
     var errorDescription: String? {
-        "YouTube demande ton choix de cookies avant de continuer. Touche « Choisir les cookies YouTube » dans la file, fais ton choix sur la page Google, puis la playlist reprendra. Aucun abonnement ni connexion Google n’est nécessaire pour cette étape."
+        "YouTube a redirigé le téléchargement vers le consentement. Touche « Vérifier l’accès YouTube » dans la file. Accepte ou refuse les cookies facultatifs si la page le propose ; si YouTube s’affiche directement, touche Vérifier. La file reprendra uniquement après vérification de l’accès du téléchargement."
     }
 }

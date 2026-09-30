@@ -98,3 +98,29 @@ ces sessions. La validation reprend seulement les files mises en pause par cette
 confirmer `audio_saved` et l’existence du M4A. Les refus d’accès, de connexion
 ou les vérifications anti-bot restent des erreurs du fournisseur. La correction
 de la redirection n’est pas une preuve d’extraction audio réussie sur l’appareil.
+
+## Retour appareil sur c4e9a55 : page sans choix de cookies
+
+La fenêtre ouvrait une nouvelle page d’accueil et utilisait l’identifiant de
+navigateur mobile par défaut, tandis que la configuration était demandée avec
+`Mozilla/5.0`. La redirection de consentement reçue avec le 302 était perdue.
+Ces différences sont une explication possible du parcours divergent observé ;
+un réglage du téléphone n’a pas été établi comme cause.
+
+La fenêtre ouvre maintenant la destination exacte reçue du fournisseur, conserve
+sa destination de retour et utilise le même identifiant de navigateur que les
+requêtes de configuration/recherche. Elle reste temporaire et isolée de Safari.
+La ligne devient « Vérifier l’accès YouTube », avec des instructions visibles.
+Si la page publique apparaît sans choix de cookies, aucune préférence n’est
+fabriquée : la configuration est vérifiée avec la session du téléchargement.
+La présence d’un cookie ne suffit plus à reprendre la file. Une page de connexion
+ou une réponse sans configuration valide ne confirme pas l’accès. Si le 302
+persiste, une vérification manuelle rouvre sa nouvelle destination exacte, sans
+boucle automatique.
+
+Nouveaux événements, sans URL ni valeur de cookie :
+`youtube_consent_preferences_saved`, `youtube_consent_preferences_absent`,
+`youtube_access_verified`, `youtube_access_still_requires_consent`,
+`youtube_access_config_missing`, `youtube_access_verification_failed` et
+`youtube_access_resumed`. Même après validation de la configuration, l’extraction
+audio complète doit être confirmée sur iPhone avec `audio_saved`.

@@ -159,7 +159,13 @@ enum DownloadTests {
         check(!PWYouTubeAccess.preference(cookie("SOCS", "x", domain: ".google.com"), now: now), "reject foreign cookie")
         check(!PWYouTubeAccess.preference(cookie("SOCS", "x", expires: now.addingTimeInterval(-1)), now: now), "reject expired preference")
         check(PWYouTubeAccess.cookieHeader(for: URL(string: "https://www.youtube.com/")!, defaults: preferences, now: now.addingTimeInterval(3601)) == nil, "saved preference expires")
-        check(PWYouTubeConsentRequired(source: 0).localizedDescription.contains("Choisir les cookies YouTube"), "give actionable consent message")
+        let target = URL(string: "https://consent.youtube.com/m?continue=https%3A%2F%2Fmusic.youtube.com%2F&hl=fr")!
+        let consent = PWYouTubeConsentRequired(source: 0, target: target)
+        check(consent.target == target, "retain full provider consent redirect instead of opening a fresh homepage")
+        check(consent.localizedDescription.contains("Vérifier l’accès YouTube"), "give actionable consent message")
+        check(PWYouTubeAccess.homepage(source: consent.source).host == "music.youtube.com", "verify the originally selected service")
+        check(PWYouTubeAccess.homepage(source: 1).host == "www.youtube.com", "verify video service separately")
+        check(!PWYouTubeAccess.save([], defaults: preferences, now: now), "do not fabricate preferences when browser shows no choice")
         print("PASS: \(count) download rules")
     }
 }
