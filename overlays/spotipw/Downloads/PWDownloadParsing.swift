@@ -15,6 +15,24 @@ struct PWAudioCandidate {
     var duration: Double
 }
 
+struct PWSearchAttempt {
+    let query: String
+    let mode: String
+    let params: String?
+    static func plan(_ track: PWAudioTrack, music: Bool) -> [PWSearchAttempt] {
+        let query = track.title + " " + track.artist
+        // ytmusicapi get_search_params(..., ignore_spelling=True): preserve
+        // the requested title instead of silently accepting search corrections.
+        if music {
+            return [PWSearchAttempt(query: query, mode: "songs_exact", params: "EgWKAQIIAUICCAFqDBAOEAoQAxAEEAkQBQ%3D%3D"),
+                    PWSearchAttempt(query: query, mode: "videos_exact", params: "EgWKAQIQAUICCAFqDBAOEAoQAxAEEAkQBQ%3D%3D"),
+                    PWSearchAttempt(query: query, mode: "all_exact", params: "EhGKAQ4IARABGAEgASgAOAFAAUICCAE%3D")]
+        }
+        return [PWSearchAttempt(query: query, mode: "videos", params: nil),
+                PWSearchAttempt(query: track.artist + " \"" + track.title + "\"", mode: "quoted_title", params: nil)]
+    }
+}
+
 // Stage names are fixed labels; diagnostic details are sanitized separately.
 enum PWDownloadStage: String {
     case spotifyItems = "spotify_playlist_items", spotifyTracks = "spotify_playlist_tracks"

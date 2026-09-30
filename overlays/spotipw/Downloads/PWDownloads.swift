@@ -131,6 +131,7 @@ private struct PWDownloadJob: Codable {
     var skipped: Int
     var paused = false
     var lastError: String?
+    var notice: String?
 }
 
 private actor PWDownloadFiles {
@@ -180,6 +181,7 @@ private final class PWDownloadStore {
     var importing = false
     var importError: String?
     var selectedPlaylist: String?
+    var availableImport: (uri: String, title: String, native: PWNativePlaylist)?
     var consentRequest: PWYouTubeConsentRequired?
     var consentSource: Int? { consentRequest?.source }
     private var consentJobIDs = Set<String>()
@@ -191,7 +193,6 @@ private final class PWDownloadStore {
     private let spotify = PWDownloadHTTP(host: "api.spotify.com")
     private let music = PWDownloadHTTP(host: "music.youtube.com")
     private let youtube = PWDownloadHTTP(host: "www.youtube.com")
-    private let media = PWDownloadHTTP(host: nil)
     private var searchConfigs: [Int: (Date, PWYouTubeSearchConfig)] = [:]
     private var stateURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -220,7 +221,7 @@ private final class PWDownloadStore {
     func importPlaylist(uri: String, title: String, authorization: String, native: PWNativePlaylist? = nil) {
         // A new arrow press selects this playlist even when its import fails.
         // Old work must not continue invisibly beneath the new error message.
-        cancelImport(); importError = nil; selectedPlaylist = title
+        cancelImport(); availableImport = nil; importError = nil; selectedPlaylist = title
         for j in jobs.indices where jobs[j].uri != uri {
             jobs[j].paused = true; consentJobIDs.remove(jobs[j].id)
         }
@@ -237,14 +238,16 @@ private final class PWDownloadStore {
         guard jobs.count < 50 else { importError = "La file contient 50 playlists. Retire une ancienne playlist de la liste."; changed(); return }
         guard let path = PWDownloadRules.playlistPath(uri) else { importError = "Cette page n’est pas une playlist compatible."; changed(); return }
         if let native = native, native.complete {
-            var seen = Set<String>()
-            let unique = native.tracks.filter { seen.insert($0.id).inserted }
-            guard !unique.isEmpty else { importError = "Aucun morceau audio pris en charge dans cette playlist."; changed(); return }
-            jobs.append(PWDownloadJob(uri: uri, title: title, source: min(UserDefaults.standard.integer(forKey: pwSourceKey), 1),
-                                      folder: UserDefaults.standard.data(forKey: pwFolderKey),
-                                      items: unique.map { PWDownloadItem(track: $0) }, skipped: native.total - unique.count))
-            importError = nil; pwEvent("playlist_native_loaded", native.total)
-            pwEvent("playlist_queued", unique.count); changed(); start(); return
+            enqueueNative(uri: uri, title: title, native: native); return
+        }
+        // A verified displayed snapshot is useful even if Spotify's announced
+        // total differs. Never label it complete or hit three known-failing APIs.
+        if let native = native, !native.tracks.isEmpty {
+            availableImport = (uri, title, native)
+            importError = native.problem
+            pwEvent("playlist_available_choice", native.tracks.count, details: ["playlist": title,
+                "loaded_rows": native.availableRows, "announced_rows": native.total])
+            changed(); return
         }
         pwEvent(native == nil ? "playlist_native_unavailable" : "playlist_native_incomplete", native?.total ?? 0)
         guard authorization.hasPrefix("Bearer ") else { importError = "Lance une chanson pour initialiser la session Spotify, puis réessaie la flèche."; changed(); return }
@@ -312,8 +315,26 @@ private final class PWDownloadStore {
             }
         }
     }
+    private func enqueueNative(uri: String, title: String, native: PWNativePlaylist) {
+        var seen = Set<String>()
+        let unique = native.tracks.filter { seen.insert($0.id).inserted }
+        guard !unique.isEmpty else { importError = "Aucun morceau audio pris en charge dans cette playlist."; changed(); return }
+        let missing = max(0, native.total - native.availableRows)
+        var job = PWDownloadJob(uri: uri, title: title, source: min(UserDefaults.standard.integer(forKey: pwSourceKey), 1),
+            folder: UserDefaults.standard.data(forKey: pwFolderKey), items: unique.map { PWDownloadItem(track: $0) },
+            skipped: max(0, native.availableRows - unique.count))
+        if !native.complete { job.notice = "Liste partielle choisie : \(native.availableRows) éléments chargés sur \(native.total) annoncés ; \(missing) absents du téléchargement." }
+        jobs.append(job); availableImport = nil; importError = nil
+        pwEvent(native.complete ? "playlist_native_loaded" : "playlist_available_confirmed", native.availableRows,
+                details: ["playlist": title, "announced_rows": native.total, "missing_rows": missing])
+        pwEvent("playlist_queued", unique.count); changed(); start()
+    }
+    func downloadAvailable() {
+        guard let choice = availableImport else { return }
+        enqueueNative(uri: choice.uri, title: choice.title, native: choice.native)
+    }
     func pauseAll() {
-        cancelImport(); consentJobIDs.removeAll(); consentRequest = nil
+        cancelImport(); availableImport = nil; consentJobIDs.removeAll(); consentRequest = nil
         for j in jobs.indices { jobs[j].paused = true }
         worker?.cancel(); changed()
     }
@@ -365,7 +386,8 @@ private final class PWDownloadStore {
                 do {
                     let temporary = try await fetchAudio(track, source: job.source, trace: trace) { phase in
                         guard let j = self.jobs.firstIndex(where: { $0.id == job.id }),
-                              let i = self.jobs[j].items.firstIndex(where: { $0.track.id == track.id }) else { return }
+                              let i = self.jobs[j].items.firstIndex(where: { $0.track.id == track.id }),
+                              self.jobs[j].items[i].state == "working" else { return }
                         self.jobs[j].items[i].phase = phase; self.changed()
                     }
                     defer { try? FileManager.default.removeItem(at: temporary) }
@@ -407,7 +429,7 @@ private final class PWDownloadStore {
         guard let j = jobs.firstIndex(where: { $0.id == jobID }), let i = jobs[j].items.firstIndex(where: { $0.track.id == trackID }) else { return }
         jobs[j].items[i].state = state; jobs[j].items[i].file = file; jobs[j].items[i].error = error; changed()
     }
-    private func fetchAudio(_ track: PWAudioTrack, source: Int, trace: [String: Any], progress: (String) -> Void) async throws -> URL {
+    private func fetchAudio(_ track: PWAudioTrack, source: Int, trace: [String: Any], progress: @escaping @MainActor (String) -> Void) async throws -> URL {
         try Task.checkCancellation()
         let isMusic = source == 0
         let host = isMusic ? "music.youtube.com" : "www.youtube.com"
@@ -430,36 +452,50 @@ private final class PWDownloadStore {
         request.setValue(configuration.clientNumber, forHTTPHeaderField: "X-YouTube-Client-Name")
         request.setValue(configuration.version, forHTTPHeaderField: "X-YouTube-Client-Version")
         request.setValue("https://\(host)", forHTTPHeaderField: "Origin")
-        var body: [String: Any] = ["query": track.title + " " + track.artist, "context": configuration.context]
-        if isMusic { body["params"] = "EgWKAQIIAWoMEA4QChADEAQQCRAF" }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let json: [String: Any]
-        do { json = try await client.json(request, stage: isMusic ? .youtubeMusicSearch : .youtubeSearch) }
-        catch { searchConfigs.removeValue(forKey: source); throw error }
-        try Task.checkCancellation()
-        let parsed = PWDownloadRules.candidates(json, music: isMusic)
-        var counts: [String: Any] = ["candidates": parsed.count, "renderers": PWDownloadRules.rendererCounts(json)]
+        var chosen: PWAudioCandidate?
+        var allResults = Set<String>()
         var rejections: [String: Int] = [:]
-        for candidate in parsed {
-            if let reason = PWDownloadRules.rejection(candidate, for: track) { rejections[reason, default: 0] += 1 }
+        let plan = PWSearchAttempt.plan(track, music: isMusic)
+        for (index, attempt) in plan.enumerated() {
+            try Task.checkCancellation()
+            progress("Recherche \(index + 1)/\(plan.count)…")
+            let searchTrace = trace.merging(["query": attempt.query, "search_mode": attempt.mode, "search_attempt": index + 1]) { _, new in new }
+            pwEvent("search_request", details: searchTrace)
+            var body: [String: Any] = ["query": attempt.query, "context": configuration.context]
+            if let params = attempt.params { body["params"] = params }
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let json: [String: Any]
+            do { json = try await client.json(request, stage: isMusic ? .youtubeMusicSearch : .youtubeSearch) }
+            catch { searchConfigs.removeValue(forKey: source); throw error }
+            try Task.checkCancellation()
+            let parsed = PWDownloadRules.candidates(json, music: isMusic)
+            var counts: [String: Any] = ["candidates": parsed.count, "renderers": PWDownloadRules.rendererCounts(json)]
+            var rejected: [String: Int] = [:]
+            for candidate in parsed {
+                if let reason = PWDownloadRules.rejection(candidate, for: track) {
+                    rejected[reason, default: 0] += 1
+                    if allResults.insert(candidate.id).inserted { rejections[reason, default: 0] += 1 }
+                }
+            }
+            for (reason, count) in rejected { counts["reject_" + reason] = count }
+            let candidates = parsed.compactMap { candidate -> (PWAudioCandidate, Int)? in
+                PWDownloadRules.score(candidate, for: track).map { (candidate, $0) }
+            }.sorted { $0.1 > $1.1 }
+            counts["accepted"] = candidates.count
+            pwEvent("search_results", details: searchTrace.merging(counts) { _, new in new })
+            for candidate in parsed.prefix(5) {
+                pwEvent("search_candidate", details: searchTrace.merging(["candidate_title": candidate.title,
+                    "candidate_artist": candidate.artist, "candidate_duration": candidate.duration,
+                    "rejection": PWDownloadRules.rejection(candidate, for: track) ?? "accepted"]) { _, new in new })
+            }
+            if let candidate = candidates.first?.0 { chosen = candidate; break }
         }
-        for (reason, count) in rejections { counts["reject_" + reason] = count }
-        let candidates = parsed.compactMap { candidate -> (PWAudioCandidate, Int)? in
-            PWDownloadRules.score(candidate, for: track).map { (candidate, $0) }
-        }.sorted { $0.1 > $1.1 }
-        counts["accepted"] = candidates.count
-        pwEvent("search_results", details: trace.merging(counts) { _, new in new })
-        for candidate in parsed.prefix(5) {
-            pwEvent("search_candidate", details: trace.merging(["candidate_title": candidate.title,
-                "candidate_artist": candidate.artist, "candidate_duration": candidate.duration,
-                "rejection": PWDownloadRules.rejection(candidate, for: track) ?? "accepted"]) { _, new in new })
-        }
-        guard let candidate = candidates.first?.0 else {
-            if parsed.isEmpty { throw pwError("Aucun résultat audio reconnu dans la réponse de \(isMusic ? "YouTube Music" : "YouTube"). Essaie l’autre source. Les détails sont dans les logs.") }
+        guard let candidate = chosen else {
+            if allResults.isEmpty { throw pwError("Aucun résultat audio reconnu après \(plan.count) recherches dans \(isMusic ? "YouTube Music" : "YouTube"). Essaie l’autre source. Les détails sont dans les logs.") }
             let labels = ["identifier": "identifiant invalide", "missing_duration": "durée absente",
                 "duration": "durée différente", "title": "titre différent", "artist": "artiste différent", "version": "autre version"]
             let reasons = rejections.keys.sorted().map { "\(labels[$0] ?? $0) : \(rejections[$0]!)" }.joined(separator: ", ")
-            throw pwError("Aucune correspondance sûre parmi \(parsed.count) résultats pour « \(track.title) » — \(track.artist). Motifs : \(reasons). Exporte les logs pour voir les candidats.")
+            throw pwError("Aucune correspondance sûre parmi \(allResults.count) résultats distincts après \(plan.count) recherches pour « \(track.title) » — \(track.artist). Motifs : \(reasons). Essaie l’autre source ; les logs détaillent chaque recherche.")
         }
         progress("Extraction du flux audio…")
         pwEvent("extraction_started", details: trace.merging(["candidate_title": candidate.title, "candidate_artist": candidate.artist, "candidate_duration": candidate.duration]) { _, new in new })
@@ -480,25 +516,20 @@ private final class PWDownloadStore {
         progress("Téléchargement du fichier audio…")
         guard let stream = streams.filterAudioOnly().filter({ $0.fileExtension == .m4a }).highestAudioBitrateStream(),
               PWDownloadRules.mediaURL(stream.url) else { throw pwError("Aucun flux M4A compatible accessible sur cet iPhone.") }
-        pwEvent("audio_download_started", details: trace)
-        // YouTube can require a short interval before allowing the resolved stream.
-        var temporary: URL?
-        for attempt in 0..<2 {
-            try Task.checkCancellation()
-            let (file, response) = try await media.session.download(from: stream.url)
-            guard let http = response as? HTTPURLResponse else { try? FileManager.default.removeItem(at: file); throw pwError("Réponse audio invalide.") }
-            pwEvent("audio_http", http.statusCode, details: trace.merging(["attempt": attempt + 1]) { _, new in new })
-            if http.statusCode == 403 && attempt == 0 {
-                try? FileManager.default.removeItem(at: file)
-                try await Task.sleep(nanoseconds: 6_000_000_000)
-                continue
-            }
-            guard http.statusCode == 200, let finalURL = http.url, PWDownloadRules.mediaURL(finalURL) else {
-                try? FileManager.default.removeItem(at: file); throw pwError("Flux audio refusé (HTTP \(http.statusCode)). Réessaie plus tard.")
-            }
-            temporary = file; break
+        pwEvent("audio_download_started", details: trace.merging(["timeout_seconds": 120, "range_requested": true]) { _, new in new })
+        let transfer = PWAudioTransfer(report: { event, status, details in
+            pwEvent(event, status, details: trace.merging(details) { _, new in new })
+        }, progress: { bytes, expected in
+            let text = expected > 0
+                ? String(format: "Téléchargement : %.0f %% (%.1f / %.1f Mo)", Double(bytes) * 100 / Double(expected), Double(bytes) / 1_000_000, Double(expected) / 1_000_000)
+                : String(format: "Téléchargement : %.1f Mo reçus", Double(bytes) / 1_000_000)
+            Task { @MainActor in progress(text) }
+        })
+        let file: URL
+        do { file = try await transfer.download(stream.url) }
+        catch let error as URLError where error.code == .timedOut {
+            throw PWDownloadError(message: "Le transfert audio a dépassé son délai (20 s sans données ou 120 s au total). La file est en pause. Les logs indiquent les octets reçus et la réponse du serveur.", pausesQueue: true)
         }
-        guard let file = temporary else { throw pwError("Le fournisseur ne permet pas de télécharger ce morceau pour le moment.") }
         do {
             try Task.checkCancellation()
             progress("Vérification du fichier audio…")
@@ -660,7 +691,7 @@ private final class PWDownloadQueueController: UITableViewController {
     }
     override func numberOfSections(in tableView: UITableView) -> Int { store.jobs.count + 1 }
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        section == 0 ? (store.consentSource == nil ? 1 : 2) : store.jobs[section - 1].items.count + 1
+        section == 0 ? (1 + (store.consentSource == nil ? 0 : 1) + (store.availableImport == nil ? 0 : 1)) : store.jobs[section - 1].items.count + 1
     }
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         section == 0 ? PWDownloadsBridge.summary : store.jobs[section - 1].title + (store.jobs[section - 1].paused ? " — en pause" : "")
@@ -668,7 +699,7 @@ private final class PWDownloadQueueController: UITableViewController {
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         if section == 0 { return "Fichiers M4A provenant de YouTube. Ils sont distincts du cache hors ligne Spotify. Garde l’app ouverte pendant la recherche ; iOS peut suspendre la file en arrière-plan. Touche un morceau enregistré pour le partager ou l’ouvrir dans une autre app." }
         let job = store.jobs[section - 1]
-        return "Source : \(job.source == 0 ? "YouTube Music" : "YouTube") · \(job.skipped) doublons, épisodes ou fichiers locaux ignorés."
+        return ["Source : \(job.source == 0 ? "YouTube Music" : "YouTube") · \(job.skipped) doublons, épisodes ou fichiers locaux ignorés.", job.notice].compactMap { $0 }.joined(separator: "\n")
     }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
@@ -678,6 +709,13 @@ private final class PWDownloadQueueController: UITableViewController {
         cell.textLabel?.adjustsFontForContentSizeCategory = true
         cell.detailTextLabel?.adjustsFontForContentSizeCategory = true
         if indexPath.section == 0 {
+            if indexPath.row > 0, let choice = store.availableImport,
+               indexPath.row == (store.consentSource == nil ? 1 : 2) {
+                cell.textLabel?.text = "Télécharger les \(Set(choice.native.tracks.map { $0.id }).count) morceaux disponibles"
+                cell.detailTextLabel?.text = "\(choice.native.availableRows) éléments chargés sur \(choice.native.total) annoncés. Les éléments manquants ne seront pas ajoutés."
+                cell.imageView?.image = UIImage(systemName: "arrow.down.circle")
+                cell.accessoryType = .disclosureIndicator; return cell
+            }
             if indexPath.row == 1 {
                 cell.textLabel?.text = "Vérifier l’accès YouTube"
                 cell.detailTextLabel?.text = "Choisis les cookies si Google le propose. Si YouTube s’affiche directement, touche Vérifier."
@@ -713,6 +751,10 @@ private final class PWDownloadQueueController: UITableViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard indexPath.section > 0 else {
+            if indexPath.row > 0, store.availableImport != nil,
+               indexPath.row == (store.consentSource == nil ? 1 : 2) {
+                store.downloadAvailable(); return
+            }
             if indexPath.row == 1, let request = store.consentRequest {
                 let consent = PWYouTubeConsentController(request: request) { [weak self] in self?.store.consentCompleted() }
                 let navigation = UINavigationController(rootViewController: consent)

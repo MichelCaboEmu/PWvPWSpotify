@@ -68,10 +68,30 @@ du fournisseur, sans numéro de client périmé fixé dans le code.
 serveur, Python ou FFmpeg n’est nécessaire. Une troisième option conserve le
 téléchargement officiel Spotify. SpotDL et librespot ne sont pas embarqués.
 
-La flèche de la playlist ouvre la file : liste complète récupérée auprès de
-Spotify, recherche du même titre/artiste/durée, puis téléchargement du M4A. Le
+La flèche de la playlist ouvre la file : lecture des morceaux Spotify, recherche
+du même titre/artiste/durée, puis téléchargement du M4A. Le
 bouton reste accessible sur les playlists d’autrui et le redesign conserve aussi
 Ajouter. Si Spotify omet la flèche, elle est ajoutée dans la rangée du header.
+
+Si Spotify n’a chargé qu’une partie de la liste (par exemple 119/208), fais-la
+défiler puis rouvre la flèche, ou choisis **Télécharger les morceaux disponibles**.
+Si les 208 éléments affichés sont chargés mais Spotify en annonce 209, le même
+choix permet de continuer avec les éléments accessibles, sans dépendre de l’API
+publique qui renvoie 404. Le nombre manquant reste affiché ; la liste n’est pas
+présentée comme complète. Pour remplacer ensuite une liste partielle, retire-la
+de la file puis rouvre la flèche une fois le chargement terminé.
+
+La recherche Music essaie au maximum trois vues du même fournisseur (chansons,
+vidéos musicales, tous les résultats), sans correction automatique du titre.
+Les contrôles d’artiste, de durée et de version restent actifs. Une apostrophe
+est conservée dans la requête JSON et normalisée uniquement pour la comparaison.
+Le transfert demande la plage complète du fichier, accepte HTTP 200 ou un 206
+couvrant tout le fichier, affiche les octets/pourcentages reçus et vérifie la
+longueur avant l’analyse audio. Une attente de 20 secondes sans données ou de
+120 secondes au total produit une erreur et met la file en pause. Les logs
+incluent la réponse HTTP immédiate, les octets, la vitesse et les délais, sans
+l’URL signée du flux. Les tests réseau utilisent un serveur local contrôlé ;
+ils ne prouvent pas l’accessibilité de tous les titres YouTube sur l’iPhone.
 
 Choisir le dossier avec Fichiers, ou conserver **Spotify Downloads** dans les
 documents de Spotify. Les fichiers existants sont préservés. La file indique les

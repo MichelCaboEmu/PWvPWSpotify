@@ -7,6 +7,7 @@ struct PWNativePlaylist {
     let tracks: [PWAudioTrack]
     let total: Int
     let problem: String?
+    var availableRows = 0
     var complete: Bool { problem == nil }
 
     static func field(_ value: Any, _ name: String) -> Any? {
@@ -56,18 +57,21 @@ struct PWNativePlaylist {
         if headerTotal != total { report("native_header_count_ignored", headerTotal) }
         // Partial loading and filtered/hidden items are independent conditions.
         // Report the loading deficit first instead of blaming filters alone.
-        guard items.count == unranged, loaded == unranged else {
+        var problem: String?
+        if items.count != unranged || loaded != unranged {
             report("native_list_partial", 0)
-            return PWNativePlaylist(tracks: [], total: total, problem: "Spotify n’a chargé que \(loaded) éléments sur \(unranged) affichés (\(total) annoncés au total). Fais défiler la playlist pour charger ses titres, puis réessaie. Si les compteurs diffèrent encore, vérifie la recherche, les filtres et les titres indisponibles. Aucun téléchargement partiel n’a été lancé.")
-        }
-        guard unfiltered == unranged else {
+            problem = "Spotify a chargé \(loaded) éléments sur \(unranged) affichés (\(total) annoncés). Fais défiler la playlist puis réessaie pour charger davantage de titres, ou choisis les morceaux disponibles ci-dessous."
+        } else if unfiltered != unranged {
             report("native_list_filtered", 0)
-            return PWNativePlaylist(tracks: [], total: total, problem: "La liste affichée contient \(unranged) éléments sur \(total) annoncés. Vérifie la recherche, les filtres et les titres masqués ou indisponibles, puis réessaie la flèche. La liste complète n’est pas encore accessible.")
+            problem = "Les \(unranged) éléments affichés sont tous chargés, sur \(total) annoncés par Spotify. La différence peut venir de filtres ou de titres masqués ou indisponibles. Tu peux télécharger les morceaux disponibles ci-dessous."
         }
         var result: [PWAudioTrack] = []
+        var availableRows = 0
         for item in items {
+            if field(item, "unloaded") != nil { continue }
             guard let track = field(item, "loaded"), let link = uri(field(track, "uri")),
                   let meta = field(track, "metadata"), let recommendation = field(track, "isRecommendation") as? Bool else { report("native_item_unavailable", 1); return nil }
+            availableRows += 1
             if recommendation { return PWNativePlaylist(tracks: [], total: total, problem: "Désactive les recommandations et les filtres de la playlist, puis réessaie.") }
             // Explicitly skip episodes and local files; a malformed music track
             // invalidates the snapshot instead of silently dropping a song.
@@ -81,6 +85,11 @@ struct PWNativePlaylist {
                   duration.isFinite, duration > 0, duration <= 86400 else { report("native_item_unavailable", 2); return nil }
             result.append(PWAudioTrack(id: id, title: title, artist: artist, duration: duration))
         }
-        return PWNativePlaylist(tracks: result, total: total, problem: nil)
+        // A count mismatch cannot be used to invent or silently omit tracks.
+        // Keep the problem for display, but expose verified rows for an explicit choice.
+        guard availableRows == loaded else {
+            return PWNativePlaylist(tracks: [], total: total, problem: problem ?? "Le contenu et les compteurs Spotify ne correspondent pas. Réessaie après le chargement de la playlist.")
+        }
+        return PWNativePlaylist(tracks: result, total: total, problem: problem, availableRows: availableRows)
     }
 }

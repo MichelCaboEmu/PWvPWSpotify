@@ -60,7 +60,7 @@ enum DownloadTests {
         header.entityModel.tracks.loadedItemCount = 1; header.entityModel.tracks.unfilteredLength = 2
         check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.complete == false, "reject filtered list")
         header.entityModel.tracks.unfilteredLength = 1; header.entityModel.tracks.items = [.unloaded(0)]
-        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI) == nil, "unloaded enum cannot masquerade as track")
+        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.tracks.isEmpty == true, "unloaded enum cannot masquerade as track")
         itemMeta.duration = .nan
         header.entityModel.tracks.items = [.loaded(Item(uri: nativeTrack.uri, metadata: itemMeta))]
         check(PWNativePlaylist.read(header: header, requestedURI: playlistURI) == nil, "reject invalid native duration")
@@ -157,6 +157,27 @@ enum DownloadTests {
         let partial = PWNativePlaylist.read(header: header, requestedURI: playlistURI) { partialEvents.append($0); _ = $1 }
         check(partial?.complete == false && partial?.problem?.contains("119") == true && partial?.problem?.contains("208") == true, "explain device's actual loading deficit")
         check(partialEvents.contains("native_list_partial") && !partialEvents.contains("native_list_filtered"), "partial loading is not reported solely as a filter")
+        header.entityModel.tracks.items = Array(repeating: .loaded(nativeTrack), count: 208)
+        header.entityModel.tracks.loadedItemCount = 208
+        let available = PWNativePlaylist.read(header: header, requestedURI: playlistURI)
+        check(available?.complete == false && available?.tracks.count == 208, "208 of 209: retain verified rows without claiming completeness")
+        check(available?.availableRows == 208 && available?.total == 209, "preserve missing row count for explicit choice")
+        header.entityModel.tracks.items = Array(repeating: .loaded(nativeTrack), count: 119) + Array(repeating: .unloaded(0), count: 89)
+        header.entityModel.tracks.loadedItemCount = 119
+        let loadedSubset = PWNativePlaylist.read(header: header, requestedURI: playlistURI)
+        check(loadedSubset?.tracks.count == 119 && loadedSubset?.complete == false, "119 of 208: only offer genuinely loaded rows")
+        header.entityModel.tracks.loadedItemCount = 120
+        check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.tracks.isEmpty == true, "inconsistent loaded count is never offered")
+        let pnl = PWAudioTrack(id: id, title: "91's", artist: "PNL", duration: 234)
+        let searches = PWSearchAttempt.plan(pnl, music: true)
+        let body = try! JSONSerialization.data(withJSONObject: ["query": searches[0].query])
+        let roundTrip = try! JSONSerialization.jsonObject(with: body) as! [String: String]
+        check(roundTrip["query"] == "91's PNL", "apostrophe survives JSON search encoding")
+        check(searches.map { $0.mode } == ["songs_exact", "videos_exact", "all_exact"], "bounded fallback widens Music results without changing supplier")
+        let apostropheMatch = PWAudioCandidate(id: exact.id, title: "91’s", artist: "PNL", duration: 238)
+        check(PWDownloadRules.score(apostropheMatch, for: pnl) != nil, "device's 91's match is accepted with curly apostrophe too")
+        let auDD = PWAudioTrack(id: id, title: "Au DD", artist: "PNL", duration: 247)
+        check(PWDownloadRules.score(apostropheMatch, for: auDD) == nil, "wider search never substitutes 91's for Au DD")
         let item: [String: Any] = ["type": "track", "id": id, "name": "La vérité", "artists": [["name": "Élodie"]], "duration_ms": 200000.0]
         check(PWDownloadRules.tracks([["item": item]]).count == 1, "new playlist item shape")
         check(PWDownloadRules.tracks([["track": item]]).count == 1, "legacy playlist item shape")

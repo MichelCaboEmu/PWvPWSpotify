@@ -46,6 +46,10 @@ jobs:
         run: |
           xcrun swiftc overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWNativePlaylist.swift overlays/spotipw/Downloads/PWYouTubeAccess.swift tests/download_rules.swift -o /tmp/pw-download-tests
           /tmp/pw-download-tests
+      - name: Test audio transfer, progress, timeout and cancellation
+        run: |
+          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos13.0" overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWYouTubeAccess.swift overlays/spotipw/Downloads/PWAudioTransfer.swift tests/audio_transfer.swift -o /tmp/pw-transfer-tests
+          python3 tests/run_audio_transfer.py /tmp/pw-transfer-tests
       - uses: actions/checkout@v5
         with:
           repository: theos/theos
