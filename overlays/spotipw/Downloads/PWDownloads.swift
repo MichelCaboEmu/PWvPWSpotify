@@ -471,7 +471,7 @@ private final class PWDownloadStore {
         catch {
             try Task.checkCancellation()
             if (error as? URLError)?.code == .cancelled { throw error }
-            let reason = (error as? YouTubeKitError)?.rawValue ?? PWDownloadLog.clean(String(describing: error))
+            let reason = (error as? YouTubeKitError)?.rawValue ?? PWDownloadLog.clean(error.localizedDescription)
             pwEvent("local_extraction_failed", (error as NSError).code, details: trace.merging(PWDownloadLog.error(error)) { _, new in new }.merging(["extractor_error": reason]) { _, new in new })
             throw PWDownloadError(message: "Extraction YouTube impossible : \(reason). La file est en pause ; les logs contiennent l’erreur d’origine.", pausesQueue: true)
         }
