@@ -540,7 +540,9 @@ final class PWDownloadsBridge: NSObject, UIDocumentPickerDelegate {
                 "failed": job.items.filter { $0.state == "failed" }.count,
                 "last_error": job.lastError ?? ""]
             pwEvent("queue_job", details: trace)
-            for item in job.items.filter({ $0.state == "working" || $0.state == "failed" }).prefix(3) {
+            let active = job.items.filter { $0.state == "working" }
+            let failures = job.items.filter { $0.state == "failed" }.suffix(3)
+            for item in active + Array(failures) {
                 pwEvent("queue_item", details: trace.merging(["title": item.track.title, "artist": item.track.artist,
                     "state": item.state, "phase": item.phase ?? "", "error_message": item.error ?? ""]) { _, new in new })
             }
