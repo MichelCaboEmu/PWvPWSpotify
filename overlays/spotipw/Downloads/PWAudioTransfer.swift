@@ -67,7 +67,7 @@ final class PWAudioTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendab
               total > 0, total <= maximumBytes, end == total - 1 else { return nil }
         return total
     }
-    func download(_ url: URL) async throws -> URL {
+    func download(_ url: URL, soundCloudToken: String? = nil) async throws -> URL {
         guard allowed(url) else { throw error("Adresse du flux audio non autorisée.") }
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
@@ -85,6 +85,9 @@ final class PWAudioTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendab
                 var request = URLRequest(url: url)
                 request.timeoutInterval = min(20, timeout)
                 request.httpShouldHandleCookies = false
+                if url.host == "api.soundcloud.com", let token = soundCloudToken {
+                    request.setValue("OAuth " + token, forHTTPHeaderField: "Authorization")
+                }
                 // Request the full byte range explicitly (audio servers may pace
                 // ordinary playback requests). Do not change signed URL values.
                 request.setValue("bytes=0-", forHTTPHeaderField: "Range")

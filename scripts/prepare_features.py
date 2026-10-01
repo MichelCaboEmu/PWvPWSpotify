@@ -12,7 +12,7 @@ def apply(root,sg,change):
     sha=subprocess.check_output(['git','-C',str(root),'rev-parse','--short=12','HEAD'],text=True).strip()
     (source/'Core/PWBuildVersion.h').write_text(f'#define PW_BUILD_SHA "{sha}"\n')
     change(sg/'tweak/Makefile','MediaPlayer CoreImage AudioToolbox AVFoundation CoreHaptics',
-           'MediaPlayer CoreImage AudioToolbox AVFoundation CoreHaptics SafariServices Security MetricKit CoreMedia CoreVideo')
+           'MediaPlayer CoreImage AudioToolbox AVFoundation CoreHaptics SafariServices Security MetricKit CoreMedia CoreVideo Network')
     # Logos hook uses only the documented MediaPlayer API, already present in Spotify.
     page=source/'App/ModSettings.x'
     change(page,'#import "PWEeveeSettings.h"','#import "PWEeveeSettings.h"\n#import "PWFeatureSettings.h"')

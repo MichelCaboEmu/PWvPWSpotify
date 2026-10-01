@@ -3,6 +3,7 @@
 #import "Core/PWDiagnostics.h"
 #import "Shared/Lyrics/Lyrics.h"
 #import <objc/message.h>
+#import "Shared/Player/PlayerState.h"
 
 static char kContext, kFallback;
 @interface PWDownloadModelReference : NSObject
@@ -99,6 +100,65 @@ void PWPrepareNativeDownloads(UIView *row) {
     for(UIView *v=button;v&&v!=row;v=v.superview){v.alpha=1;v.userInteractionEnabled=YES;}
 }
 
+// Classes and row identifiers are documented in PlaylistRows.x, based on
+// trees/clean/playlist/02.txt. Use that same evidence under both appearances.
+static char kTrackInfo, kTrackWatcher, kTrackBadge;
+@interface PWTrackMenuWatcher : NSObject <UIGestureRecognizerDelegate>
+@property(nonatomic, weak) UIView *button;
+@end
+@implementation PWTrackMenuWatcher
+- (void)tapped { [PWDownloadsBridge selectMenuTrack:objc_getAssociatedObject(self.button, &kTrackInfo)]; }
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)recognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other { return YES; }
+@end
+static UIView *PWIdentified(UIView *root, NSString *name) {
+    __block UIView *result=nil;
+    SGForEachView(root, ^(UIView *view){if(!result && [view.accessibilityIdentifier hasPrefix:name]) result=view;});
+    return result;
+}
+static NSString *PWRowText(UIView *root) {
+    NSMutableArray *texts=[NSMutableArray array];
+    SGForEachView(root, ^(UIView *view){if([view isKindOfClass:UILabel.class] && ((UILabel *)view).text.length) [texts addObject:((UILabel *)view).text];});
+    return [texts componentsJoinedByString:@" "];
+}
+static void PWApplyTrackRow(UIView *cell) {
+    UIImageView *badge=objc_getAssociatedObject(cell,&kTrackBadge);
+    badge.alpha=0;
+    UIView *button=PWIdentified(cell,@"Components.UI.ContextMenuButton");
+    if(button) objc_setAssociatedObject(button,&kTrackInfo,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if(!PWDownloadsEnabled())return;
+    id model=modelFor(cell); NSDictionary *context=contextFor(model);
+    if(!context)return;
+    NSString *title=PWRowText(PWIdentified(cell,@"Track.Row.Content.Title"));
+    NSString *subtitle=PWRowText(PWIdentified(cell,@"Track.Row.Content.Subtitle"));
+    if(!title.length || !subtitle.length)return;
+    NSDictionary *info=[PWDownloadsBridge trackInfoFromModel:model uri:context[@"uri"] title:title subtitle:subtitle];
+    if(button){
+        objc_setAssociatedObject(button,&kTrackInfo,info,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if(!objc_getAssociatedObject(button,&kTrackWatcher)){
+            PWTrackMenuWatcher *watcher=[PWTrackMenuWatcher new];watcher.button=button;
+            objc_setAssociatedObject(button,&kTrackWatcher,watcher,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            UITapGestureRecognizer *tap=[[UITapGestureRecognizer alloc] initWithTarget:watcher action:@selector(tapped)];
+            tap.cancelsTouchesInView=NO;tap.delaysTouchesEnded=NO;tap.delegate=watcher;
+            [button addGestureRecognizer:tap];
+            if([button isKindOfClass:UIControl.class])[(UIControl *)button addTarget:watcher action:@selector(tapped) forControlEvents:UIControlEventTouchUpInside|UIControlEventPrimaryActionTriggered];
+        }
+    }
+    if(![info[@"saved"] boolValue])return;
+    UIView *art=PWIdentified(cell,@"Encore.ImageView");
+    if(!art)return;
+    if(!badge){
+        badge=[[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"checkmark.circle.fill"]];
+        badge.tintColor=UIColor.systemGreenColor;badge.backgroundColor=UIColor.blackColor;
+        badge.layer.cornerRadius=8;badge.clipsToBounds=YES;badge.userInteractionEnabled=NO;
+        badge.isAccessibilityElement=YES;badge.accessibilityLabel=@"Téléchargé sur cet iPhone";
+        objc_setAssociatedObject(cell,&kTrackBadge,badge,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [cell addSubview:badge];
+    }
+    CGRect frame=[cell convertRect:art.bounds fromView:art];
+    badge.frame=CGRectMake(CGRectGetMaxX(frame)-16,CGRectGetMaxY(frame)-16,16,16);badge.alpha=1;
+    [cell bringSubviewToFront:badge];
+}
+
 %hook UIControl
 - (void)sendAction:(SEL)action to:(id)target forEvent:(UIEvent *)event {
     NSDictionary *context=objc_getAssociatedObject(self,&kContext);
@@ -106,8 +166,20 @@ void PWPrepareNativeDownloads(UIView *row) {
     %orig;
 }
 %end
+%hook _TtC35ListUXPlatform_FreeTierPlaylistImpl25ElementCollectionViewCell
+- (void)layoutSubviews { %orig; PWApplyTrackRow((UIView *)self); }
+%end
+%hook _TtC24ContextMenu_InternalImpl25ContextMenuViewController
+- (void)viewDidLayoutSubviews { %orig; [PWDownloadsBridge installTrackMenu:(UIViewController *)self]; }
+%end
 %ctor {
     %init;
+    [NSUserDefaults.standardUserDefaults registerDefaults:@{@"spotifyglass.download.autoOffline":@YES}];
+    dispatch_async(dispatch_get_main_queue(), ^{[PWDownloadsBridge startOfflineMonitor];});
+    [NSNotificationCenter.defaultCenter addObserverForName:@"PWOfflinePlaybackStarting" object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
+        id<SPTPlayer> player=SGKaraokePlayer();
+        if(player && !SGPlayerState().isPaused)[player pause:nil];
+    }];
     [NSNotificationCenter.defaultCenter addObserverForName:@"PWDownloadDiagnostic" object:nil queue:nil usingBlock:^(NSNotification *note){
         NSString *event=note.userInfo[@"event"];
         if([event isKindOfClass:NSString.class]) {

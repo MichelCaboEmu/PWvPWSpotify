@@ -53,15 +53,27 @@ SGModRow *PWDiagnosticsRow(void){
     }),@"doc.text.magnifyingglass");
 }
 SGModRow *PWDownloadsSettingsRow(void){
-    return SGWithSymbol(SGPageRow(@"Téléchargement des playlists",^UIViewController *{
+    return SGWithSymbol(SGPageRow(@"Téléchargements et hors ligne",^UIViewController *{
         return [[SGModPage alloc] initWithTitle:@"Téléchargements" intro:@"La flèche d’une playlist ouvre la file de fichiers audio. Les nouvelles playlists utilisent la source et le dossier choisis ici." sections:@[
-            SGSection(nil,@[SGChoiceRow(@"Source",nil,PWKeyDownloadSource,@[@"YouTube Music — sur cet iPhone",@"YouTube — sur cet iPhone",@"Téléchargement officiel Spotify"],0),
+            SGSection(nil,@[SGChoiceRow(@"Source",nil,PWKeyDownloadSource,@[@"YouTube Music — sur cet iPhone",@"YouTube — sur cet iPhone",@"Téléchargement officiel Spotify",@"SoundCloud — API configurée"],0),
                 SGActionRow(@"Choisir le dossier",@"Ouvre un dossier, puis touche Ouvrir",^{[PWDownloadsBridge chooseFolderFrom:top()];}),
                 SGStatRow(@"Dossier",^NSString *{return [PWDownloadsBridge folderName];}),
                 SGActionRow(@"Dossier par défaut",@"Spotify Downloads dans les fichiers de Spotify",^{[PWDownloadsBridge resetFolder];}),
                 SGActionRow(@"Voir les téléchargements",nil,^{[PWDownloadsBridge presentFrom:top() playlistURI:nil title:nil authorization:nil];}),
-                SGStatRow(@"État",^NSString *{return [PWDownloadsBridge summary];})])
-        ] footer:@"Les deux sources YouTube utilisent YouTubeKit localement, sans serveur intermédiaire ni abonnement Spotify requis. La disponibilité dépend des fournisseurs et de l’accès à la playlist. Les fichiers M4A sont lisibles dans Fichiers ou une autre app ; ils ne deviennent pas des morceaux hors ligne du lecteur Spotify. Le mode officiel conserve les conditions de Spotify. Garde l’app ouverte pendant le téléchargement. Après fermeture ou suspension, reprends la file ici. Redémarre Spotify après un changement de mode pour actualiser tous les boutons."];
+                SGStatRow(@"État",^NSString *{return [PWDownloadsBridge summary];}),
+                SGActionRow(@"Titres en erreur",@"Voir les causes complètes et réessayer",^{[PWDownloadsBridge errorsFrom:top()];}),
+                SGStatRow(@"Erreurs",^NSString *{return [PWDownloadsBridge errorSummary];})]),
+            SGSection(@"Bibliothèque",@[
+                SGActionRow(@"Bibliothèque hors ligne",@"Écouter les fichiers présents sur cet iPhone",^{[PWDownloadsBridge libraryFrom:top()];}),
+                SGSwitchRow(@"Ouvrir hors ligne sans réseau",@"Affiche les playlists téléchargées au lancement",@"spotifyglass.download.autoOffline"),
+                SGActionRow(@"Mettre à jour les métadonnées",@"Pochette, titre, artiste, album et année",^{[PWDownloadsBridge metadataFrom:top()];}),
+                SGStatRow(@"Métadonnées",^NSString *{return [PWDownloadsBridge metadataSummary];})]),
+            SGSection(@"Secours SoundCloud",@[
+                SGSwitchRow(@"SoundCloud en secours",@"Si aucun titre ne correspond ou si le flux YouTube est refusé",@"spotifyglass.download.soundcloudFallback"),
+                SGActionRow(@"Accès SoundCloud",@"Configurer le jeton de ton application API",^{[PWDownloadsBridge configureSoundCloudFrom:top()];}),
+                SGStatRow(@"Accès API",^NSString *{return [PWDownloadsBridge soundCloudSummary];}),
+                SGLinkRow(@"Obtenir un accès API",nil,@"https://developers.soundcloud.com/docs/api/guide")])
+        ] footer:@"Les fichiers déjà présents sont réutilisés entre playlists. Refaire la flèche relit la liste et ajoute les titres manquants. Les fichiers restent disponibles après avoir vidé la file. Le lecteur hors ligne intégré utilise ces fichiers, séparément du cache Spotify. SoundCloud exige un jeton API valide et un téléchargement autorisé pour le titre. Le mode officiel conserve les conditions de Spotify. Garde l’app ouverte pendant les transferts. Redémarre après un changement de mode pour actualiser tous les boutons."];
     }),@"arrow.down.circle");
 }
 SGModRow *PWGeniusSettingsRow(void){

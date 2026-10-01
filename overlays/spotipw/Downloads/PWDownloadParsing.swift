@@ -139,8 +139,8 @@ enum PWDownloadRules {
                                                with: "", options: .regularExpression)
         return words(clean)
     }
-    static func rejection(_ candidate: PWAudioCandidate, for track: PWAudioTrack) -> String? {
-        guard identifier(candidate.id, length: 11) else { return "identifier" }
+    static func rejection(_ candidate: PWAudioCandidate, for track: PWAudioTrack, requireYouTubeID: Bool = true) -> String? {
+        guard !requireYouTubeID || identifier(candidate.id, length: 11) else { return "identifier" }
         guard track.duration.isFinite, candidate.duration.isFinite, track.duration > 0, candidate.duration > 0 else { return "missing_duration" }
         guard abs(candidate.duration - track.duration) <= max(8, track.duration * 0.05) else { return "duration" }
         let title = titleWords(track.title), found = titleWords(candidate.title)
@@ -245,7 +245,7 @@ enum PWDownloadRules {
     }
     static func filename(_ track: PWAudioTrack) -> String {
         let clean = (track.artist + " - " + track.title).components(separatedBy: CharacterSet(charactersIn: "/\\:\n\r\0").union(.controlCharacters)).joined(separator: " ")
-        return String(clean.prefix(100)) + " [" + track.id + "].m4a"
+        return String(clean.prefix(100)).trimmingCharacters(in: .whitespacesAndNewlines) + ".m4a"
     }
     static func mediaURL(_ url: URL) -> Bool {
         let host = url.host?.lowercased() ?? ""
@@ -258,7 +258,7 @@ enum PWDownloadLog {
     static func clean(_ text: String) -> String {
         var value = text
         for pattern in [#"(?i)(?:https?|file)://[^\s\"<>]+"#,
-                        #"(?i)Bearer\s+[^\s,;\"]+"#,
+                        #"(?i)(?:Bearer|OAuth)\s+[^\s,;\"]+"#,
                         #"(?i)(?:access_token|refresh_token|authorization|cookie|SOCS|CONSENT)["']?\s*[:=]\s*["']?[^\s,;"'}]+"#] {
             value = value.replacingOccurrences(of: pattern, with: "[redacted]", options: .regularExpression)
         }
