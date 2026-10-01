@@ -44,11 +44,11 @@ jobs:
           /tmp/pw-provider-tests
       - name: Test playlist parsing and audio matching
         run: |
-          xcrun swiftc overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWNativePlaylist.swift overlays/spotipw/Downloads/PWYouTubeAccess.swift tests/download_rules.swift -o /tmp/pw-download-tests
+          xcrun swiftc overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWNativePlaylist.swift overlays/spotipw/Downloads/PWMetadataRules.swift overlays/spotipw/Downloads/PWYouTubeAccess.swift tests/download_rules.swift -o /tmp/pw-download-tests
           /tmp/pw-download-tests
       - name: Test persistent library and incremental playlists
         run: |
-          xcrun swiftc overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWLibraryCatalog.swift tests/library_catalog.swift -o /tmp/pw-library-tests
+          xcrun swiftc overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWLibraryCatalog.swift overlays/spotipw/Downloads/PWFolderIndex.swift overlays/spotipw/Downloads/PWMetadataRules.swift overlays/spotipw/Downloads/PWMediaRetry.swift tests/library_catalog.swift -o /tmp/pw-library-tests
           /tmp/pw-library-tests
       - name: Test audio transfer, progress, timeout and cancellation
         run: |

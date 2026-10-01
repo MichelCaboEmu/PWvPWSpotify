@@ -146,36 +146,7 @@ actor PWDownloadFiles {
         }
         return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Spotify Downloads", isDirectory: true)
     }
-    func save(_ temporary: URL, track: PWAudioTrack, job: PWDownloadJob) throws -> String {
-        try Task.checkCancellation()
-        let root = try Self.root(for: job)
-        let scoped = root.startAccessingSecurityScopedResource()
-        defer { if scoped { root.stopAccessingSecurityScopedResource() } }
-        // A URL inside our container needs no security scope. The coordinated write
-        // below is the authority on access; false alone is not a write failure.
-        let folder = root.appendingPathComponent("Playlist-" + job.id, isDirectory: true)
-        var coordinationError: NSError?, operationError: Error?, name: String?
-        NSFileCoordinator().coordinate(writingItemAt: folder, options: .forMerging, error: &coordinationError) { granted in
-            do {
-                try FileManager.default.createDirectory(at: granted, withIntermediateDirectories: true)
-                var filename = PWDownloadRules.filename(track)
-                // A file placed here by the user is never overwritten.
-                if FileManager.default.fileExists(atPath: granted.appendingPathComponent(filename).path) {
-                    let base = String(filename.dropLast(4))
-                    var suffix = 2
-                    while FileManager.default.fileExists(atPath: granted.appendingPathComponent(base + " (\(suffix)).m4a").path) { suffix += 1 }
-                    filename = base + " (\(suffix)).m4a"
-                }
-                let destination = granted.appendingPathComponent(filename)
-                try Task.checkCancellation()
-                try FileManager.default.copyItem(at: temporary, to: destination)
-                name = filename
-            } catch { operationError = error }
-        }
-        if let error = operationError ?? coordinationError { throw error }
-        guard let name = name else { throw pwError("Le fournisseur de fichiers n’a pas enregistré le morceau.") }
-        return name
-    }
+
 }
 
 @MainActor
@@ -212,6 +183,7 @@ final class PWDownloadStore {
             }
         }
         PWLocalLibrary.shared.migrate(jobs)
+        Task { await PWLocalLibrary.shared.organizeLegacyFolders() }
     }
     func changed() {
         do {
@@ -224,6 +196,7 @@ final class PWDownloadStore {
         importGeneration = UUID(); importer?.cancel(); importer = nil; importing = false
     }
     func importPlaylist(uri: String, title: String, authorization: String, native: PWNativePlaylist? = nil) {
+        if authorization.hasPrefix("Bearer ") { PWMetadata.spotifyAuthorization = authorization }
         // A new arrow press selects this playlist even when its import fails.
         // Old work must not continue invisibly beneath the new error message.
         cancelImport(); availableImport = nil; importError = nil; selectedPlaylist = title
@@ -350,11 +323,9 @@ final class PWDownloadStore {
             }
             jobs.remove(at: index)
         }
-        for i in job.items.indices {
-            if let saved = PWLocalLibrary.shared.available(job.items[i].track.id) {
-                job.items[i].state = "done"; job.items[i].file = saved.filename
-            }
-        }
+        // Existing audio is copied locally to this playlist's stable directory
+        // by the worker; it is never fetched from a provider a second time.
+        for i in job.items.indices { job.items[i].state = "pending"; job.items[i].error = nil }
         PWLocalLibrary.shared.rememberPlaylist(uri: job.uri, title: job.title, tracks: job.items.map(\.track), complete: complete)
         jobs.append(job)
         pwEvent("playlist_incremental", details: ["playlist": job.title,
@@ -390,7 +361,7 @@ final class PWDownloadStore {
         guard let j = jobs.firstIndex(where: { $0.id == id }) else { return }
         jobs[j].paused = false; jobs[j].lastError = nil
         for i in jobs[j].items.indices {
-            if let saved = PWLocalLibrary.shared.available(jobs[j].items[i].track.id) {
+            if let saved = PWLocalLibrary.shared.available(jobs[j].items[i].track.id, playlist: jobs[j].uri) {
                 jobs[j].items[i].state = "done"; jobs[j].items[i].file = saved.filename; jobs[j].items[i].error = nil
             } else if jobs[j].items[i].state != "working" {
                 jobs[j].items[i].state = "pending"; jobs[j].items[i].error = nil
@@ -425,10 +396,6 @@ final class PWDownloadStore {
                 guard let j = jobs.firstIndex(where: { !$0.paused && $0.items.contains(where: { $0.state == "pending" }) }),
                       let i = jobs[j].items.firstIndex(where: { $0.state == "pending" }) else { break }
                 let job = jobs[j], track = job.items[i].track
-                if let saved = PWLocalLibrary.shared.available(track.id) {
-                    update(job.id, track.id, state: "done", file: saved.filename)
-                    pwEvent("audio_already_saved", details: ["title": track.title]); continue
-                }
                 let started = Date()
                 let trace: [String: Any] = ["job": job.id, "playlist": job.title, "item": i + 1,
                     "title": track.title, "artist": track.artist, "duration": track.duration,
@@ -436,6 +403,13 @@ final class PWDownloadStore {
                 activeID = job.id; jobs[j].items[i].state = "working"; jobs[j].items[i].phase = "Recherche…"; changed()
                 pwEvent("audio_started", details: trace)
                 do {
+                    if let saved = PWLocalLibrary.shared.available(track.id) {
+                        jobs[j].items[i].phase = "Classement dans le dossier de la playlist…"; changed()
+                        let file = try await PWDownloadFiles.shared.copyToPlaylist(saved, job: job)
+                        PWLocalLibrary.shared.record(track: track, job: job, stored: file, previous: saved)
+                        update(job.id, track.id, state: "done", file: file.filename)
+                        pwEvent("audio_reused_locally", details: trace); continue
+                    }
                     let temporary = try await fetchWithFallback(track, source: job.source, trace: trace) { phase in
                         guard let j = self.jobs.firstIndex(where: { $0.id == job.id }),
                               let i = self.jobs[j].items.firstIndex(where: { $0.track.id == track.id }),
@@ -445,9 +419,9 @@ final class PWDownloadStore {
                     defer { try? FileManager.default.removeItem(at: temporary) }
                     try Task.checkCancellation()
                     pwEvent("audio_saving", details: trace)
-                    let file = try await PWDownloadFiles.shared.save(temporary, track: track, job: job)
-                    PWLocalLibrary.shared.record(track: track, job: job, filename: file)
-                    update(job.id, track.id, state: "done", file: file)
+                    let file = try await PWDownloadFiles.shared.saveToPlaylist(temporary, track: track, job: job)
+                    PWLocalLibrary.shared.record(track: track, job: job, stored: file)
+                    update(job.id, track.id, state: "done", file: file.filename)
                     pwEvent("audio_saved", details: trace.merging(["elapsed_ms": Int(Date().timeIntervalSince(started) * 1000)]) { _, new in new })
                 } catch {
                     let cancelled = Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled
@@ -485,9 +459,17 @@ final class PWDownloadStore {
     private func fetchWithFallback(_ track: PWAudioTrack, source: Int, trace: [String: Any], progress: @escaping @MainActor (String) -> Void) async throws -> URL {
         let file: URL
         if source == 3 {
-            file = try await PWSoundCloud.shared.download(track, trace: trace, progress: progress)
+            file = try await PWAudius.shared.download(track, trace: trace, progress: progress)
         } else {
-            do { file = try await fetchAudio(track, source: source, trace: trace, progress: progress) }
+            do {
+                file = try await PWMediaRetry.run(operation: { attempt in
+                    try await self.fetchAudio(track, source: source, attempt: attempt,
+                        trace: trace.merging(["transfer_attempt": attempt]) { _, new in new }, progress: progress)
+                }, forbidden: { ($0 as? PWAudioHTTPError)?.status == 403 }, waiting: {
+                    progress("Flux refusé : nouvelle tentative dans 3 secondes…")
+                    pwEvent("audio_403_retry_scheduled", 403, details: trace.merging(["delay_seconds": 3, "next_attempt": 2]) { _, new in new })
+                })
+            }
             catch {
                 try Task.checkCancellation()
                 // Fallback for a missing match or a refused media stream, never
@@ -495,14 +477,11 @@ final class PWDownloadStore {
                 let missingMatch = (error as? PWDownloadError)?.fallbackEligible == true
                 let refusedMedia = (error as? PWAudioHTTPError).map { [403, 410].contains($0.status) } == true
                 guard missingMatch || refusedMedia,
-                      UserDefaults.standard.bool(forKey: "spotifyglass.download.soundcloudFallback") else { throw error }
-                guard PWSoundCloudAccess.token != nil else {
-                    throw pwError(error.localizedDescription + " Secours SoundCloud non configuré : ajoute un jeton API dans les paramètres.")
-                }
-                pwEvent("soundcloud_fallback_started", details: trace.merging(PWDownloadLog.error(error)) { _, new in new })
-                do { file = try await PWSoundCloud.shared.download(track, trace: trace, progress: progress) }
+                      UserDefaults.standard.bool(forKey: "spotifyglass.download.audiusFallback") else { throw error }
+                pwEvent("audius_fallback_started", details: trace.merging(PWDownloadLog.error(error)) { _, new in new })
+                do { file = try await PWAudius.shared.download(track, trace: trace, progress: progress) }
                 catch let fallback {
-                    throw PWDownloadError(message: error.localizedDescription + "\nSecours SoundCloud : " + fallback.localizedDescription,
+                    throw PWDownloadError(message: error.localizedDescription + "\nSecours Audius : " + fallback.localizedDescription,
                         pausesQueue: (fallback as? PWDownloadError)?.pausesQueue ?? false)
                 }
             }
@@ -510,14 +489,15 @@ final class PWDownloadStore {
         // Basic tags are always written. External enrichment is explicit and
         // updates the whole local catalog through the metadata button.
         do {
-            let tagged = try await PWMetadata.tag(file, track: track, match: nil)
+            let basic = await PWMetadata.nativeMatch(track)
+            let tagged = try await PWMetadata.tag(file, track: track, match: basic)
             try? FileManager.default.removeItem(at: file); return tagged
         } catch {
             if Task.isCancelled { try? FileManager.default.removeItem(at: file); throw error }
             pwEvent("basic_metadata_failed", details: PWDownloadLog.error(error)); return file
         }
     }
-    private func fetchAudio(_ track: PWAudioTrack, source: Int, trace: [String: Any], progress: @escaping @MainActor (String) -> Void) async throws -> URL {
+    private func fetchAudio(_ track: PWAudioTrack, source: Int, attempt: Int, trace: [String: Any], progress: @escaping @MainActor (String) -> Void) async throws -> URL {
         try Task.checkCancellation()
         let isMusic = source == 0
         let host = isMusic ? "music.youtube.com" : "www.youtube.com"
@@ -612,7 +592,7 @@ final class PWDownloadStore {
             "available_streams": ordered.count]) { _, new in new })
         let file: URL
         do {
-            file = try await PWAudioTransfer.downloadAlternatives(ordered.map { $0.url }, report: { event, status, details in
+            file = try await PWAudioTransfer.downloadAlternatives([ordered[min(attempt - 1, ordered.count - 1)].url], report: { event, status, details in
                 pwEvent(event, status, details: trace.merging(details) { _, new in new })
             }, progress: { bytes, expected in
                 let text = expected > 0
@@ -657,8 +637,8 @@ final class PWDownloadsBridge: NSObject, UIDocumentPickerDelegate {
         pwEvent("library_snapshot", library.catalog.entries.count, details: ["playlists": library.catalog.playlists.count,
             "metadata_status": library.metadataStatus, "metadata_active": library.metadataTask != nil,
             "metadata_errors": library.catalog.entries.values.filter { $0.metadataError != nil }.count,
-            "soundcloud_configured": PWSoundCloudAccess.token != nil,
-            "soundcloud_fallback": UserDefaults.standard.bool(forKey: "spotifyglass.download.soundcloudFallback")])
+            "audius_fallback": UserDefaults.standard.bool(forKey: "spotifyglass.download.audiusFallback"),
+            "soundcloud_fallback": UserDefaults.standard.bool(forKey: "spotifyglass.download.audiusFallback")])
         for entry in library.catalog.entries.values.filter({ $0.metadataError != nil }).prefix(10) {
             pwEvent("metadata_error_snapshot", details: ["title": entry.track.title, "message": entry.metadataError ?? ""])
         }

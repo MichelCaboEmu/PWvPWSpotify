@@ -5,8 +5,10 @@ BOOL PWDownloadsEnabled(void);
 // Main thread. Uses the displayed header's verified model, never the current player context.
 UIView *PWDownloadControl(UIView *root, id model);
 void PWPrepareNativeDownloads(UIView *row);
+void PWRefreshMetadataSession(void);
 
 @interface PWDownloadsBridge : NSObject
++ (void)setSpotifyAuthorization:(NSString *)authorization;
 + (void)libraryFrom:(UIViewController *)controller;
 + (void)errorsFrom:(UIViewController *)controller;
 + (NSString *)errorSummary;
@@ -14,8 +16,6 @@ void PWPrepareNativeDownloads(UIView *row);
 + (NSString *)metadataSummary;
 + (void)startOfflineMonitor;
 + (void)stopOfflinePlayback;
-+ (void)configureSoundCloudFrom:(UIViewController *)controller;
-+ (NSString *)soundCloudSummary;
 + (NSDictionary *)trackInfoFromModel:(id)model uri:(NSString *)uri title:(NSString *)title subtitle:(NSString *)subtitle;
 + (void)selectMenuTrack:(NSDictionary *)info;
 + (void)installTrackMenu:(UIViewController *)menu;

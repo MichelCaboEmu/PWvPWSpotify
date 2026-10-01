@@ -24,7 +24,7 @@ static id objectGetter(id object, NSString *name) {
 static id modelFor(UIView *view) {
     for(UIResponder *r=view;r;r=r.nextResponder) {
         if (![r isKindOfClass:UIViewController.class]) continue;
-        if (![NSStringFromClass(r.class) containsString:@"FreeTierPlaylist"]) return nil;
+        if (![NSStringFromClass(r.class) containsString:@"FreeTierPlaylist"]) continue;
         return objectGetter(objectGetter(r,@"headerController"),@"defaultHeaderViewModel");
     }
     return nil;
@@ -102,12 +102,26 @@ void PWPrepareNativeDownloads(UIView *row) {
 
 // Classes and row identifiers are documented in PlaylistRows.x, based on
 // trees/clean/playlist/02.txt. Use that same evidence under both appearances.
+void PWRefreshMetadataSession(void) { [PWDownloadsBridge setSpotifyAuthorization:SGKaraokeSpotifyAuthorization()]; }
+static NSDictionary *PWPlayingTrackInfo(void) {
+    SPTPlayerState *state=SGPlayerState(); SPTPlayerTrack *track=state.track;
+    NSString *uri=track.URI.absoluteString;
+    if(![uri hasPrefix:@"spotify:track:"] || !track.trackTitle.length || !track.artistName.length)return nil;
+    NSDictionary *metadata=track.metadata;
+    NSString *art=metadata[@"image_xlarge_url"] ?: metadata[@"image_large_url"] ?: metadata[@"image_url"];
+    NSMutableDictionary *info=[@{@"id":[uri componentsSeparatedByString:@":"].lastObject,
+        @"title":track.trackTitle,@"artist":track.artistName,@"duration":@(state.duration)} mutableCopy];
+    if([metadata[@"album_title"] isKindOfClass:NSString.class])info[@"album"]=metadata[@"album_title"];
+    if([art isKindOfClass:NSString.class])info[@"artwork"]=art;
+    PWRefreshMetadataSession(); return info;
+}
+static char kPlayingMenu;
 static char kTrackInfo, kTrackWatcher, kTrackBadge;
 @interface PWTrackMenuWatcher : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic, weak) UIView *button;
 @end
 @implementation PWTrackMenuWatcher
-- (void)tapped { [PWDownloadsBridge selectMenuTrack:objc_getAssociatedObject(self.button, &kTrackInfo)]; }
+- (void)tapped { [PWDownloadsBridge selectMenuTrack:objc_getAssociatedObject(self.button,&kPlayingMenu) ? PWPlayingTrackInfo() : objc_getAssociatedObject(self.button, &kTrackInfo)]; }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)recognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other { return YES; }
 @end
 static UIView *PWIdentified(UIView *root, NSString *name) {
@@ -163,7 +177,7 @@ static void PWApplyTrackRow(UIView *cell) {
 - (void)sendAction:(SEL)action to:(id)target forEvent:(UIEvent *)event {
     if(PWDownloadsEnabled()) for(UIView *view=(UIView *)self; view; view=view.superview){
         if(objc_getAssociatedObject(view,&kTrackWatcher)){
-            [PWDownloadsBridge selectMenuTrack:objc_getAssociatedObject(view,&kTrackInfo)];break;
+            [PWDownloadsBridge selectMenuTrack:objc_getAssociatedObject(view,&kPlayingMenu) ? PWPlayingTrackInfo() : objc_getAssociatedObject(view,&kTrackInfo)];break;
         }
     }
     NSDictionary *context=objc_getAssociatedObject(self,&kContext);
@@ -177,6 +191,21 @@ static void PWApplyTrackRow(UIView *cell) {
     PWApplyTrackRow((UIView *)self);
 }
 %end
+// Same verified header class/identifier as Redesigned/Player/PlayerHeader.x.
+// Shared placement also covers the classic Spotify appearance.
+%hook _TtC20NowPlaying_ModesImpl18HeaderElementsUnit
+- (void)viewDidLayoutSubviews {
+    %orig;
+    UIView *button=PWIdentified(((UIViewController *)self).view,@"Context menu");
+    if(!button || objc_getAssociatedObject(button,&kTrackWatcher))return;
+    objc_setAssociatedObject(button,&kPlayingMenu,@YES,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    PWTrackMenuWatcher *watcher=[PWTrackMenuWatcher new];watcher.button=button;
+    objc_setAssociatedObject(button,&kTrackWatcher,watcher,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    UITapGestureRecognizer *tap=[[UITapGestureRecognizer alloc] initWithTarget:watcher action:@selector(tapped)];
+    tap.cancelsTouchesInView=NO;tap.delaysTouchesEnded=NO;tap.delegate=watcher;[button addGestureRecognizer:tap];
+    if([button isKindOfClass:UIControl.class])[(UIControl *)button addTarget:watcher action:@selector(tapped) forControlEvents:UIControlEventTouchUpInside|UIControlEventPrimaryActionTriggered];
+}
+%end
 %hook _TtC24ContextMenu_InternalImpl25ContextMenuViewController
 - (void)viewDidLayoutSubviews {
     %orig;
@@ -185,7 +214,7 @@ static void PWApplyTrackRow(UIView *cell) {
 %end
 %ctor {
     %init;
-    [NSUserDefaults.standardUserDefaults registerDefaults:@{@"spotifyglass.download.autoOffline":@YES}];
+    [NSUserDefaults.standardUserDefaults registerDefaults:@{@"spotifyglass.download.autoOffline":@YES,@"spotifyglass.download.audiusFallback":@YES}];
     dispatch_async(dispatch_get_main_queue(), ^{[PWDownloadsBridge startOfflineMonitor];});
     [NSNotificationCenter.defaultCenter addObserverForName:@"PWOfflinePlaybackStarting" object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
         id<SPTPlayer> player=SGKaraokePlayer();

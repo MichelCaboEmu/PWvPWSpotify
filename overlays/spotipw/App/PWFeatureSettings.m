@@ -55,7 +55,7 @@ SGModRow *PWDiagnosticsRow(void){
 SGModRow *PWDownloadsSettingsRow(void){
     return SGWithSymbol(SGPageRow(@"Téléchargements et hors ligne",^UIViewController *{
         return [[SGModPage alloc] initWithTitle:@"Téléchargements" intro:@"La flèche d’une playlist ouvre la file de fichiers audio. Les nouvelles playlists utilisent la source et le dossier choisis ici." sections:@[
-            SGSection(nil,@[SGChoiceRow(@"Source",nil,PWKeyDownloadSource,@[@"YouTube Music — sur cet iPhone",@"YouTube — sur cet iPhone",@"Téléchargement officiel Spotify",@"SoundCloud — API configurée"],0),
+            SGSection(nil,@[SGChoiceRow(@"Source",nil,PWKeyDownloadSource,@[@"YouTube Music — sur cet iPhone",@"YouTube — sur cet iPhone",@"Téléchargement officiel Spotify",@"Audius — gratuit"],0),
                 SGActionRow(@"Choisir le dossier",@"Ouvre un dossier, puis touche Ouvrir",^{[PWDownloadsBridge chooseFolderFrom:top()];}),
                 SGStatRow(@"Dossier",^NSString *{return [PWDownloadsBridge folderName];}),
                 SGActionRow(@"Dossier par défaut",@"Spotify Downloads dans les fichiers de Spotify",^{[PWDownloadsBridge resetFolder];}),
@@ -66,14 +66,11 @@ SGModRow *PWDownloadsSettingsRow(void){
             SGSection(@"Bibliothèque",@[
                 SGActionRow(@"Bibliothèque hors ligne",@"Écouter les fichiers présents sur cet iPhone",^{[PWDownloadsBridge libraryFrom:top()];}),
                 SGSwitchRow(@"Ouvrir hors ligne sans réseau",@"Affiche les playlists téléchargées au lancement",@"spotifyglass.download.autoOffline"),
-                SGActionRow(@"Mettre à jour les métadonnées",@"Pochette, titre, artiste, album et année",^{[PWDownloadsBridge metadataFrom:top()];}),
-                SGStatRow(@"Métadonnées",^NSString *{return [PWDownloadsBridge metadataSummary];})]),
-            SGSection(@"Secours SoundCloud",@[
-                SGSwitchRow(@"SoundCloud en secours",@"Si aucun titre ne correspond ou si le flux YouTube est refusé",@"spotifyglass.download.soundcloudFallback"),
-                SGActionRow(@"Accès SoundCloud",@"Configurer le jeton de ton application API",^{[PWDownloadsBridge configureSoundCloudFrom:top()];}),
-                SGStatRow(@"Accès API",^NSString *{return [PWDownloadsBridge soundCloudSummary];}),
-                SGLinkRow(@"Obtenir un accès API",nil,@"https://developers.soundcloud.com/docs/api/guide")])
-        ] footer:@"Les fichiers déjà présents sont réutilisés entre playlists. Refaire la flèche relit la liste et ajoute les titres manquants. Les fichiers restent disponibles après avoir vidé la file. Le lecteur hors ligne intégré utilise ces fichiers, séparément du cache Spotify. SoundCloud exige un jeton API valide et un téléchargement autorisé pour le titre. Le mode officiel conserve les conditions de Spotify. Garde l’app ouverte pendant les transferts. Redémarre après un changement de mode pour actualiser tous les boutons."];
+                SGActionRow(@"Mettre à jour les métadonnées",@"Pochette, titre, artiste, album et année",^{PWRefreshMetadataSession();[PWDownloadsBridge metadataFrom:top()];})]),
+            SGSection(@"Source de secours",@[
+                SGSwitchRow(@"Audius en secours",@"Après deux refus 403 ou si aucun titre ne correspond",@"spotifyglass.download.audiusFallback"),
+                SGLinkRow(@"À propos d’Audius",@"Catalogue indépendant, téléchargements gratuits autorisés par les artistes",@"https://docs.audius.co/api/")])
+        ] footer:@"Les fichiers déjà présents sont réutilisés entre playlists. Refaire la flèche relit la liste et ajoute les titres manquants. Les fichiers restent disponibles après avoir vidé la file. Le lecteur hors ligne intégré utilise ces fichiers, séparément du cache Spotify. Audius ne nécessite pas de compte payant ; seuls les titres proposés gratuitement au téléchargement sont utilisés. Son catalogue est limité. Après un refus 403, une seconde tentative a lieu après 3 secondes, avant le secours. Le mode officiel conserve les conditions de Spotify. Garde l’app ouverte pendant les transferts. Redémarre après un changement de mode pour actualiser tous les boutons."];
     }),@"arrow.down.circle");
 }
 SGModRow *PWGeniusSettingsRow(void){

@@ -83,7 +83,10 @@ struct PWNativePlaylist {
                   let artist = artists.first.flatMap({ field($0, "name") as? String }), !artist.isEmpty,
                   let duration = field(meta, "duration") as? Double,
                   duration.isFinite, duration > 0, duration <= 86400 else { report("native_item_unavailable", 2); return nil }
-            result.append(PWAudioTrack(id: id, title: title, artist: artist, duration: duration))
+            let covers = field(meta, "albumCovers") as? [String: Any] ?? field(meta, "covers") as? [String: Any] ?? [:]
+            let cover = covers.sorted { $0.key > $1.key }.compactMap { uri($0.value) }.compactMap(PWMetadataRules.artworkURL).first
+            result.append(PWAudioTrack(id: id, title: title, artist: artist, duration: duration,
+                album: field(meta, "albumName") as? String, artworkURL: cover))
         }
         // A count mismatch cannot be used to invent or silently omit tracks.
         // Keep the problem for display, but expose verified rows for an explicit choice.

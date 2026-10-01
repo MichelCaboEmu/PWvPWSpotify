@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import ObjectiveC
 
 extension PWDownloadsBridge {
     static func topController() -> UIViewController? {
@@ -34,19 +35,6 @@ extension PWDownloadsBridge {
     }
     @objc static func startOfflineMonitor() { PWOfflineStartup.shared.start() }
     @objc static func stopOfflinePlayback() { PWOfflinePlayer.shared.stop() }
-    @objc static var soundCloudSummary: String { PWSoundCloudAccess.token == nil ? "Non configuré" : "Jeton enregistré — validité vérifiée lors de la recherche" }
-    @objc(configureSoundCloudFrom:)
-    static func configureSoundCloud(from presenter: UIViewController) {
-        let alert = UIAlertController(title: "Accès SoundCloud", message: "Jeton OAuth de ton application API SoundCloud, conservé dans le trousseau de cet iPhone. Il expire généralement après une heure et doit être remplacé. Laisser vide pour l’effacer. Seuls les fichiers dont le téléchargement est autorisé sont utilisés.", preferredStyle: .alert)
-        alert.overrideUserInterfaceStyle = .dark
-        alert.addTextField { field in field.placeholder = "Jeton d’accès OAuth"; field.isSecureTextEntry = true; field.autocorrectionType = .no; field.autocapitalizationType = .none }
-        alert.addAction(UIAlertAction(title: "Annuler", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Enregistrer", style: .default) { _ in
-            if !PWSoundCloudAccess.save(alert.textFields?.first?.text ?? "") { PWLocalLibraryController.notice("Le trousseau n’a pas enregistré le jeton.", from: presenter) }
-        })
-        presenter.present(alert, animated: true)
-    }
-
     private static var nativeCache: (key: ObjectIdentifier, uri: String, time: Date, tracks: [PWAudioTrack])?
     @objc(trackInfoFromModel:uri:title:subtitle:)
     static func trackInfo(model: AnyObject, uri: String, title: String, subtitle: String) -> NSDictionary? {
@@ -65,8 +53,10 @@ extension PWDownloadsBridge {
         let matching = tracks.filter { PWDownloadRules.words($0.title) == names && PWDownloadRules.phrase(PWDownloadRules.words($0.artist), in: detail) }
         let ids = Set(matching.map(\.id))
         guard ids.count == 1, let track = matching.first else { return nil }
-        return ["id": track.id, "title": track.title, "artist": track.artist, "duration": track.duration,
+        var info: [String: Any] = ["id": track.id, "title": track.title, "artist": track.artist, "duration": track.duration,
                 "saved": PWLocalLibrary.shared.available(track.id) != nil]
+        info["album"] = track.album; info["artwork"] = track.artworkURL
+        return info as NSDictionary
     }
     private static var menuTrack: (track: PWAudioTrack, time: Date)?
     @objc(selectMenuTrack:)
@@ -74,25 +64,35 @@ extension PWDownloadsBridge {
         menuTrack = nil
         guard let id = info?["id"] as? String, let title = info?["title"] as? String,
               let artist = info?["artist"] as? String, let duration = info?["duration"] as? Double else { return }
-        menuTrack = (PWAudioTrack(id: id, title: title, artist: artist, duration: duration), Date())
+        menuTrack = (PWAudioTrack(id: id, title: title, artist: artist, duration: duration, album: info?["album"] as? String, artworkURL: (info?["artwork"] as? String).flatMap(PWMetadataRules.artworkURL)), Date())
     }
+    @objc(setSpotifyAuthorization:)
+    static func setSpotifyAuthorization(_ authorization: String?) {
+        if let authorization = authorization, authorization.hasPrefix("Bearer ") { PWMetadata.spotifyAuthorization = authorization }
+    }
+    private static var menuSelectionKey: UInt8 = 0
+    private static var menuButtonKey: UInt8 = 0
     @objc(installTrackMenu:)
     static func installTrackMenu(_ menu: UIViewController) {
-        guard let selection = menuTrack, Date().timeIntervalSince(selection.time) < 2 else { return }
+        let selected: PWAudioTrack
+        if let box = objc_getAssociatedObject(menu, &menuSelectionKey) as? PWTrackMenuSelection { selected = box.track }
+        else {
+            guard let selection = menuTrack, Date().timeIntervalSince(selection.time) < 4 else { return }
+            selected = selection.track
+            objc_setAssociatedObject(menu, &menuSelectionKey, PWTrackMenuSelection(selected), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            menuTrack = nil
+        }
         func table(_ view: UIView, _ depth: Int = 0) -> UITableView? {
             if let view = view as? UITableView { return view }
             guard depth < 7 else { return nil }
             return view.subviews.compactMap { table($0, depth + 1) }.first
         }
         guard let rows = table(menu.view), rows.bounds.width > 0 else { return }
-        let headerFree = rows.tableHeaderView == nil || (rows.tableHeaderView?.bounds.height ?? 0) < 1
-        let footerFree = rows.tableFooterView == nil || (rows.tableFooterView?.bounds.height ?? 0) < 1
-        guard footerFree || headerFree else { menuTrack = nil; pwEvent("track_menu_space_unavailable"); return }
-        menuTrack = nil
+        if let button = objc_getAssociatedObject(menu, &menuButtonKey) as? UIButton, button.isDescendant(of: rows) { return }
         let button = UIButton(type: .system)
         button.frame = CGRect(x: 0, y: 0, width: rows.bounds.width, height: 58)
         button.overrideUserInterfaceStyle = .dark
-        let saved = PWLocalLibrary.shared.available(selection.track.id) != nil
+        let saved = PWLocalLibrary.shared.available(selected.id) != nil
         var config = UIButton.Configuration.plain()
         config.title = saved ? "Téléchargé sur cet iPhone" : "Télécharger ce titre"
         config.image = UIImage(systemName: saved ? "checkmark.circle.fill" : "arrow.down.circle")
@@ -101,9 +101,16 @@ extension PWDownloadsBridge {
         button.configuration = config; button.contentHorizontalAlignment = .leading
         button.addAction(UIAction { [weak menu] _ in
             guard let menu = menu else { return }
-            chooseSource(selection.track, from: menu)
+            chooseSource(selected, from: menu)
         }, for: .touchUpInside)
-        if footerFree { rows.tableFooterView = button } else { rows.tableHeaderView = button }
+        // Preserve Spotify's footer and other tweaks' header controls.
+        let prior = rows.tableFooterView
+        let height = prior?.bounds.height ?? 0
+        let wrapper = UIView(frame: CGRect(x: 0, y: 0, width: rows.bounds.width, height: height + 58))
+        if let prior = prior { wrapper.addSubview(prior) }
+        button.frame.origin.y = height; button.autoresizingMask = [.flexibleWidth]
+        wrapper.addSubview(button); rows.tableFooterView = wrapper
+        objc_setAssociatedObject(menu, &menuButtonKey, button, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         rows.invalidateIntrinsicContentSize()
     }
     static func chooseSource(_ track: PWAudioTrack, from presenter: UIViewController) {
@@ -181,7 +188,7 @@ final class PWMetadataController: UITableViewController {
     @objc func close() { dismiss(animated: true) }
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 2 }
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        "Tous les fichiers du catalogue sont traités. Le catalogue Apple est interrogé avec le titre et l’artiste ; la durée et la version doivent correspondre. Pochette, album et année restent inchangés sans résultat sûr. Les fichiers sont vérifiés avant remplacement, sans retélécharger l’audio. Les anciens noms avec identifiant sont simplifiés. Garde l’app ouverte."
+        "Tous les fichiers du catalogue sont traités. Spotify fournit en priorité l’album et la pochette. Apple iTunes puis MusicBrainz / Cover Art Archive complètent les données après vérification du titre, de l’artiste, de l’album et de la durée. Pochette, album et année restent inchangés sans résultat sûr. Les fichiers sont vérifiés avant remplacement, sans retélécharger l’audio. Garde l’app ouverte."
     }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
@@ -197,3 +204,5 @@ final class PWMetadataController: UITableViewController {
         if indexPath.row == 0 { PWLocalLibrary.shared.updateMetadata(); tableView.reloadData() }
     }
 }
+
+private final class PWTrackMenuSelection: NSObject { let track: PWAudioTrack; init(_ track: PWAudioTrack) { self.track = track } }

@@ -6,6 +6,16 @@ struct PWAudioTrack: Codable, Equatable {
     var title: String
     var artist: String
     var duration: Double
+    var album: String?
+    var artworkURL: String?
+    var isrc: String?
+    var year: String?
+    func enriched(with newer: PWAudioTrack) -> PWAudioTrack {
+        var result = newer
+        result.album = newer.album ?? album; result.artworkURL = newer.artworkURL ?? artworkURL
+        result.isrc = newer.isrc ?? isrc; result.year = newer.year ?? year
+        return result
+    }
 }
 
 struct PWAudioCandidate {
@@ -240,7 +250,12 @@ enum PWDownloadRules {
                   let title = t["name"] as? String, !title.isEmpty,
                   let artist = (t["artists"] as? [[String: Any]])?.first?["name"] as? String,
                   !artist.isEmpty, let ms = t["duration_ms"] as? Double, ms > 0 else { return nil }
-            return PWAudioTrack(id: id, title: title, artist: artist, duration: ms / 1000)
+            let album = t["album"] as? [String: Any]
+            return PWAudioTrack(id: id, title: title, artist: artist, duration: ms / 1000,
+                album: album?["name"] as? String,
+                artworkURL: (album?["images"] as? [[String: Any]])?.first?["url"] as? String,
+                isrc: (t["external_ids"] as? [String: Any])?["isrc"] as? String,
+                year: (album?["release_date"] as? String).map { String($0.prefix(4)) })
         }
     }
     static func filename(_ track: PWAudioTrack) -> String {

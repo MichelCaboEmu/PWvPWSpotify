@@ -7,6 +7,7 @@ struct PWMetadataMatch {
     var album: String?
     var year: String?
     var artwork: Data?
+    var source: String = "Apple iTunes"
 }
 enum PWAudioTags {
     private static func tagError(_ message: String) -> NSError {
@@ -26,8 +27,8 @@ enum PWAudioTags {
         }
         text(.commonIdentifierTitle, match?.title ?? track.title)
         text(.commonIdentifierArtist, match?.artist ?? track.artist)
-        text(.commonIdentifierAlbumName, match?.album)
-        text(.iTunesMetadataReleaseDate, match?.year)
+        text(.commonIdentifierAlbumName, match?.album ?? track.album)
+        text(.iTunesMetadataReleaseDate, match?.year ?? track.year)
         if let artwork = match?.artwork {
             let item = AVMutableMetadataItem(); item.identifier = .commonIdentifierArtwork; item.value = artwork as NSData; item.dataType = "com.apple.metadata.datatype.JPEG"; tags.append(item)
         }

@@ -74,6 +74,8 @@ def apply(root, sg, change):
            '        applyActions(self);\n        PWPrepareNativeDownloads(self);\n    }')
 
     redesigned = source / 'Redesigned/Playlist/PlaylistHeader.x'
+    change(redesigned, '#import "Playlist.h"', '#import "Playlist.h"\n#import "Redesigned/Kit/SGRGlass.h"')
+    change(redesigned, '    for (UIView *v = toolbar; v && v != headerRoot; v = v.superview) {\n        if (![NSStringFromClass(v.class) containsString:@"HeaderView"]) continue;\n        conceal(v);\n        break;\n    }', '    // Spotify owns pull-to-reveal visibility and search. Style its control only.\n    static char kSearchGlass;\n    if (toolbar && toolbar.bounds.size.width > 0 && toolbar.bounds.size.height > 0)\n        SGRGlassCapsuleInside(toolbar, &kSearchGlass, toolbar.bounds.size, NO);')
     change(redesigned, '#import "Playlist.h"', '#import "Playlist.h"\n#import "Shared/Downloads/PWDownloads.h"')
     change(redesigned, 'UIView *download = save ? nil : SGRFindByIdentifier(block, @"DownloadButton.Granular*", &kDownloadKey);',
            'UIView *download = PWDownloadsEnabled() ? PWDownloadControl(block, model) :\n'
