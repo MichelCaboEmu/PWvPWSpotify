@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import AudioToolbox
 
 @main enum AudioContainerTests {
     static func main() async throws {
@@ -44,15 +45,23 @@ import AVFoundation
             check(abs(duration - 12) < 0.1, "normalized duration matches actual audio")
             // Decode the output too: a plausible duration header alone is not
             // enough to demonstrate that a saved M4A is actually playable.
-            let decoded = try AVAudioFile(forReading: result)
-            let buffer = AVAudioPCMBuffer(pcmFormat: decoded.processingFormat, frameCapacity: 4096)!
-            var frames: Int64 = 0
-            while true {
-                try decoded.read(into: buffer)
-                if buffer.frameLength == 0 { break }
-                frames += Int64(buffer.frameLength)
+            let reader = try AVAssetReader(asset: asset)
+            let tracks = try await asset.loadTracks(withMediaType: .audio)
+            let output = AVAssetReaderTrackOutput(track: tracks[0], outputSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false, AVLinearPCMIsNonInterleaved: false])
+            reader.add(output)
+            guard reader.startReading() else { throw reader.error ?? NSError(domain: "TestDecodeStart", code: 1) }
+            var decodedSeconds = 0.0
+            while let samples = output.copyNextSampleBuffer() {
+                guard CMSampleBufferGetNumSamples(samples) > 0 else { continue }
+                let description = CMSampleBufferGetFormatDescription(samples)!
+                let format = CMAudioFormatDescriptionGetStreamBasicDescription(description)!.pointee
+                decodedSeconds += Double(CMSampleBufferGetNumSamples(samples)) / format.mSampleRate
             }
-            check(abs(Double(frames) / decoded.processingFormat.sampleRate - 12) < 0.1, "M4A decodes to twelve seconds, not twenty-four")
+            guard reader.status == .completed else { throw reader.error ?? NSError(domain: "TestDecodeIncomplete", code: 1) }
+            FileHandle.standardOutput.write(Data("decoded_audio_seconds \(decodedSeconds)\n".utf8))
+            check(abs(decodedSeconds - 12) < 0.1, "M4A decodes to twelve seconds, not twenty-four")
             do {
                 let wrong = try await PWAudioContainer.normalize(source, expectedDuration: 24)
                 try? FileManager.default.removeItem(at: wrong)
