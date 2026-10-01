@@ -66,6 +66,14 @@ enum PWAudioContainer {
                 guard ProcessInfo.processInfo.systemUptime < deadline else { throw error("Préparation du fichier audio trop longue (60 s).") }
                 try await Task.sleep(nanoseconds: 5_000_000)
             }
+            // AVAssetReader can emit a zero-sample end marker with invalid
+            // PTS and zero duration. It carries no audio packet to remux.
+            if CMSampleBufferGetNumSamples(sample) == 0 {
+                guard CMSampleBufferGetTotalSampleSize(sample) == 0 else { throw error("Bloc audio sans échantillons mais contenant des données.") }
+                report("audio_container_empty_marker", ["after_buffers": buffers])
+                buffer = output.copyNextSampleBuffer()
+                continue
+            }
             let time = CMSampleBufferGetPresentationTimeStamp(sample)
             let duration = CMSampleBufferGetDuration(sample)
             guard time.isNumeric, duration.isNumeric, time.seconds.isFinite, duration.seconds.isFinite,
