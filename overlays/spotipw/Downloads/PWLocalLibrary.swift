@@ -87,9 +87,10 @@ final class PWOfflinePlayer: NSObject {
     private var access: URL?
     private var completion: NSObjectProtocol?
     private var failure: NSObjectProtocol?
+    private var nowPlayingSession: MPNowPlayingSession?
     private var remoteTargets: [(MPRemoteCommand, Any)] = []
     var title: String { queue.indices.contains(index) ? queue[index].track.title : "Aucune lecture" }
-    var playing: Bool { player?.rate ?? 0 > 0 }
+    var playing: Bool { (player?.rate ?? 0) > 0 }
     func play(_ entries: [PWLocalEntry], at position: Int) throws {
         guard entries.indices.contains(position) else { return }
         stop()
@@ -116,11 +117,17 @@ final class PWOfflinePlayer: NSObject {
             let message = (note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)?.localizedDescription ?? "Lecture locale interrompue."
             Task { @MainActor in pwEvent("offline_playback_failed", details: ["message": message]); self?.stop() }
         }
-        if remoteTargets.isEmpty { installCommands() }
+        if let player = player {
+            nowPlayingSession = MPNowPlayingSession(players: [player])
+            installCommands()
+            nowPlayingSession?.becomeActiveIfPossible { active in
+                pwEvent("offline_session_active", active ? 1 : 0)
+            }
+        }
         player?.play(); nowPlaying(); NotificationCenter.default.post(name: pwChanged, object: nil)
     }
     private func installCommands() {
-        let center = MPRemoteCommandCenter.shared()
+        guard let center = nowPlayingSession?.remoteCommandCenter else { return }
         for (command, action) in [(center.playCommand, 0), (center.pauseCommand, 1),
                                   (center.togglePlayPauseCommand, 2), (center.nextTrackCommand, 3), (center.previousTrackCommand, 4)] {
             let target = command.addTarget { [weak self] _ in
@@ -140,7 +147,7 @@ final class PWOfflinePlayer: NSObject {
     private func nowPlaying() {
         guard queue.indices.contains(index), let player = player else { return }
         let entry = queue[index]
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = [MPMediaItemPropertyTitle: entry.track.title,
+        nowPlayingSession?.nowPlayingInfoCenter.nowPlayingInfo = [MPMediaItemPropertyTitle: entry.track.title,
             MPMediaItemPropertyArtist: entry.track.artist, MPMediaItemPropertyAlbumTitle: entry.album ?? "",
             MPMediaItemPropertyPlaybackDuration: entry.track.duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: max(0, player.currentTime().seconds.isFinite ? player.currentTime().seconds : 0),
@@ -151,15 +158,14 @@ final class PWOfflinePlayer: NSObject {
     func previous() { index = max(0, index - 1); do { try begin() } catch { stop() } }
     private func releaseItem() {
         player?.pause(); player = nil
+        for (command, target) in remoteTargets { command.removeTarget(target) }; remoteTargets = []
+        nowPlayingSession?.nowPlayingInfoCenter.nowPlayingInfo = nil; nowPlayingSession = nil
         for observer in [completion, failure].compactMap({ $0 }) { NotificationCenter.default.removeObserver(observer) }
         completion = nil; failure = nil
         if let access = access { access.stopAccessingSecurityScopedResource() }; access = nil
     }
     func stop() {
-        let hadPlayer = player != nil
         releaseItem(); queue = []
-        for (command, target) in remoteTargets { command.removeTarget(target) }; remoteTargets = []
-        if hadPlayer { MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
         NotificationCenter.default.post(name: pwChanged, object: nil)
     }
 }
@@ -188,13 +194,17 @@ final class PWLocalLibraryController: UITableViewController {
             UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
             UIBarButtonItem(image: UIImage(systemName: player.playing ? "pause.fill" : "play.fill"), style: .plain, target: self, action: #selector(toggle)),
             UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
-            UIBarButtonItem(image: UIImage(systemName: "forward.end.fill"), style: .plain, target: self, action: #selector(next))]
+            UIBarButtonItem(image: UIImage(systemName: "forward.end.fill"), style: .plain, target: self, action: #selector(nextTrack))]
         navigationController?.setToolbarHidden(player.player == nil, animated: false)
         tableView.reloadData()
     }
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if navigationController?.isBeingDismissed == true || isBeingDismissed { PWOfflinePlayer.shared.stop() }
+    }
     @objc private func close() { PWOfflinePlayer.shared.stop(); dismiss(animated: true) }
     @objc private func toggle() { PWOfflinePlayer.shared.toggle() }
-    @objc private func next() { PWOfflinePlayer.shared.next() }
+    @objc private func nextTrack() { PWOfflinePlayer.shared.next() }
     @objc private func previous() { PWOfflinePlayer.shared.previous() }
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { playlist == nil ? lists.count : entries.count }
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {

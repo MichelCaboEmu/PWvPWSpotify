@@ -161,16 +161,27 @@ static void PWApplyTrackRow(UIView *cell) {
 
 %hook UIControl
 - (void)sendAction:(SEL)action to:(id)target forEvent:(UIEvent *)event {
+    if(PWDownloadsEnabled()) for(UIView *view=(UIView *)self; view; view=view.superview){
+        if(objc_getAssociatedObject(view,&kTrackWatcher)){
+            [PWDownloadsBridge selectMenuTrack:objc_getAssociatedObject(view,&kTrackInfo)];break;
+        }
+    }
     NSDictionary *context=objc_getAssociatedObject(self,&kContext);
     if(PWDownloadsEnabled()&&context){show((UIView *)self,context);return;}
     %orig;
 }
 %end
 %hook _TtC35ListUXPlatform_FreeTierPlaylistImpl25ElementCollectionViewCell
-- (void)layoutSubviews { %orig; PWApplyTrackRow((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    PWApplyTrackRow((UIView *)self);
+}
 %end
 %hook _TtC24ContextMenu_InternalImpl25ContextMenuViewController
-- (void)viewDidLayoutSubviews { %orig; [PWDownloadsBridge installTrackMenu:(UIViewController *)self]; }
+- (void)viewDidLayoutSubviews {
+    %orig;
+    [PWDownloadsBridge installTrackMenu:(UIViewController *)self];
+}
 %end
 %ctor {
     %init;

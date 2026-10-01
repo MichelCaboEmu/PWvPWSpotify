@@ -33,13 +33,6 @@ final class PWMetadataHTTP: NSObject, URLSessionTaskDelegate {
         return data
     }
 }
-struct PWMetadataMatch {
-    var title: String
-    var artist: String
-    var album: String?
-    var year: String?
-    var artwork: Data?
-}
 enum PWMetadata {
     static func lookup(_ track: PWAudioTrack) async throws -> PWMetadataMatch? {
         var url = URLComponents(string: "https://itunes.apple.com/search")!
@@ -67,42 +60,7 @@ enum PWMetadata {
                                album: row["collectionName"] as? String, year: year, artwork: artwork)
     }
     static func tag(_ file: URL, track: PWAudioTrack, match: PWMetadataMatch?) async throws -> URL {
-        let asset = AVURLAsset(url: file, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
-        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough),
-              export.supportedFileTypes.contains(.m4a) else { throw pwError("Ce fichier ne permet pas la mise à jour des métadonnées sans conversion.") }
-        let target = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".m4a")
-        var success = false
-        defer { if !success { try? FileManager.default.removeItem(at: target) } }
-        var tags: [AVMetadataItem] = []
-        func text(_ id: AVMetadataIdentifier, _ value: String?) {
-            guard let value = value, !value.isEmpty else { return }
-            let item = AVMutableMetadataItem(); item.identifier = id; item.value = value as NSString; item.extendedLanguageTag = "und"; tags.append(item)
-        }
-        text(.commonIdentifierTitle, match?.title ?? track.title)
-        text(.commonIdentifierArtist, match?.artist ?? track.artist)
-        text(.commonIdentifierAlbumName, match?.album)
-        text(.iTunesMetadataReleaseDate, match?.year)
-        if let artwork = match?.artwork {
-            let item = AVMutableMetadataItem(); item.identifier = .commonIdentifierArtwork; item.value = artwork as NSData; item.dataType = "com.apple.metadata.datatype.JPEG"; tags.append(item)
-        }
-        let replacing = Set(tags.compactMap(\.identifier))
-        let existing = try await asset.load(.metadata)
-        export.metadata = existing.filter { $0.identifier.map { !replacing.contains($0) } ?? true } + tags
-        export.outputURL = target; export.outputFileType = .m4a
-        let timeout = Task { try await Task.sleep(nanoseconds: 60_000_000_000); export.cancelExport() }
-        defer { timeout.cancel() }
-        try await withTaskCancellationHandler(operation: {
-            await withCheckedContinuation { continuation in export.exportAsynchronously { continuation.resume() } }
-            try Task.checkCancellation()
-            guard export.status == .completed else { throw export.error ?? pwError("Mise à jour interrompue ou trop longue ; le fichier original est conservé.") }
-        }, onCancel: { export.cancelExport() })
-        let output = AVURLAsset(url: target, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
-        let duration = try await output.load(.duration).seconds
-        let original = try await asset.load(.duration).seconds
-        guard duration.isFinite, abs(duration - original) < 0.25, !((try await output.loadTracks(withMediaType: .audio)).isEmpty) else {
-            throw pwError("La vérification audio après mise à jour a échoué ; l’original est conservé.")
-        }
-        success = true; return target
+        try await PWAudioTags.tag(file, track: track, match: match)
     }
     static func update(_ entry: PWLocalEntry, match: PWMetadataMatch?) async throws -> PWLocalEntry {
         let location = try entry.location(), scoped = location.root.startAccessingSecurityScopedResource()
@@ -120,7 +78,7 @@ enum PWMetadata {
         var updated = entry
         if let match = match {
             updated.track.title = match.title; updated.track.artist = match.artist
-            updated.album = match.album; updated.year = match.year; updated.metadataSource = "Apple iTunes"
+            updated.album = match.album ?? entry.album; updated.year = match.year ?? entry.year; updated.metadataSource = "Apple iTunes"
         }
         NSFileCoordinator().coordinate(writingItemAt: location.file, options: .forReplacing, error: &coordination) { original in
             let staging = original.deletingLastPathComponent().appendingPathComponent(".pw-metadata-" + UUID().uuidString + ".m4a")

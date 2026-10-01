@@ -58,6 +58,10 @@ jobs:
         run: |
           xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos13.0" overlays/spotipw/Downloads/PWAudioContainer.swift tests/audio_container.swift -o /tmp/pw-container-tests
           /tmp/pw-container-tests tests/fixtures/dash-aac.m4a.b64
+      - name: Test metadata writing preserves playable audio
+        run: |
+          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos13.0" overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWAudioContainer.swift overlays/spotipw/Downloads/PWAudioTags.swift tests/metadata_tags.swift -o /tmp/pw-metadata-tests
+          /tmp/pw-metadata-tests tests/fixtures/dash-aac.m4a.b64
       - uses: actions/checkout@v5
         with:
           repository: theos/theos

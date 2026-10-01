@@ -50,6 +50,7 @@ extension PWDownloadsBridge {
     private static var nativeCache: (key: ObjectIdentifier, uri: String, time: Date, tracks: [PWAudioTrack])?
     @objc(trackInfoFromModel:uri:title:subtitle:)
     static func trackInfo(model: AnyObject, uri: String, title: String, subtitle: String) -> NSDictionary? {
+        _ = PWDownloadStore.shared
         let key = ObjectIdentifier(model)
         let tracks: [PWAudioTrack]
         if let cached = nativeCache, cached.key == key, cached.uri == uri, Date().timeIntervalSince(cached.time) < 1 {
