@@ -1,5 +1,12 @@
 import Foundation
 
+struct PWAudioHTTPError: LocalizedError {
+    let status: Int
+    var errorDescription: String? {
+        "Flux audio refusé (HTTP \(status)). Aucun fichier enregistré."
+    }
+}
+
 // Own a single transfer. Delegate callbacks run on one serial queue; cancellation
 // may arrive on another executor and only touches the locked task reference.
 final class PWAudioTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendable {
@@ -26,6 +33,28 @@ final class PWAudioTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendab
          report: @escaping @Sendable (String, Int, [String: Any]) -> Void,
          progress: @escaping @Sendable (Int64, Int64) -> Void) {
         self.timeout = timeout; self.allowed = allowed; self.report = report; self.progress = progress
+    }
+    // Only try alternate URLs already returned for this same video. No new
+    // identity, account, proxy or repeated retry of a refused URL is introduced.
+    static func downloadAlternatives(_ urls: [URL], timeout: TimeInterval = 120,
+         allowed: @escaping @Sendable (URL) -> Bool = { PWDownloadRules.mediaURL($0) },
+         report: @escaping @Sendable (String, Int, [String: Any]) -> Void,
+         progress: @escaping @Sendable (Int64, Int64) -> Void) async throws -> URL {
+        var seen = Set<URL>()
+        let candidates = Array(urls.filter { allowed($0) && seen.insert($0).inserted }.prefix(3))
+        guard !candidates.isEmpty else { throw URLError(.unsupportedURL) }
+        for (index, url) in candidates.enumerated() {
+            try Task.checkCancellation()
+            report("audio_stream_attempt", index + 1, ["available_streams": candidates.count])
+            let transfer = PWAudioTransfer(timeout: timeout, allowed: allowed, report: { event, code, details in
+                report(event, code, details.merging(["stream_attempt": index + 1]) { _, new in new })
+            }, progress: progress)
+            do { return try await transfer.download(url) }
+            catch let error as PWAudioHTTPError where [403, 410].contains(error.status) && index + 1 < candidates.count {
+                report("audio_stream_alternative", error.status, ["next_attempt": index + 2])
+            }
+        }
+        throw URLError(.resourceUnavailable)
     }
     private func error(_ message: String) -> NSError {
         NSError(domain: "PWAudioTransfer", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
@@ -90,7 +119,7 @@ final class PWAudioTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendab
             "elapsed_ms": Int((ProcessInfo.processInfo.systemUptime - started) * 1000),
             "content_range": http.value(forHTTPHeaderField: "Content-Range") ?? ""])
         guard http.statusCode == 200 || http.statusCode == 206 else {
-            failure = error("Flux audio refusé (HTTP \(http.statusCode)). Aucun fichier enregistré.")
+            failure = PWAudioHTTPError(status: http.statusCode)
             completionHandler(.cancel); return
         }
         if http.statusCode == 206 {

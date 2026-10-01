@@ -50,6 +50,10 @@ jobs:
         run: |
           xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos13.0" overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWYouTubeAccess.swift overlays/spotipw/Downloads/PWAudioTransfer.swift tests/audio_transfer.swift -o /tmp/pw-transfer-tests
           python3 tests/run_audio_transfer.py /tmp/pw-transfer-tests
+      - name: Test DASH M4A normalization and decoded audio
+        run: |
+          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos13.0" overlays/spotipw/Downloads/PWAudioContainer.swift tests/audio_container.swift -o /tmp/pw-container-tests
+          /tmp/pw-container-tests tests/fixtures/dash-aac.m4a.b64
       - uses: actions/checkout@v5
         with:
           repository: theos/theos

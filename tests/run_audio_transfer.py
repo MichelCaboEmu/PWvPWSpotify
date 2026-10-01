@@ -17,7 +17,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route in ('stall', 'cancel'):
             time.sleep(4)
             return
-        status = 403 if route == 'denied' else 206 if route in ('ok206', 'partial') else 200
+        status = 429 if route == 'limited' else 403 if route == 'denied' else 206 if route in ('ok206', 'partial') else 200
         self.send_response(status)
         self.send_header('Content-Type', 'audio/mp4')
         self.send_header('Content-Length', str(200_000_000 if route == 'large' else 4096))

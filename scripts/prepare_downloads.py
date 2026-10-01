@@ -26,6 +26,13 @@ def apply(root, sg, change):
            '                let (data, _) = try await URLSession.shared.data(for: scriptRequest)')
     change(vendor / 'Extensions/Retry.swift', 'for method in methods {',
            'for method in methods {\n            try Task<Never, Never>.checkCancellation()')
+    # Keep distinct public URLs for an identical format: a URL returned by one
+    # client can expire/refuse HTTP 403 while another already-returned URL works.
+    # The app caps attempts at three and never changes authentication or clients.
+    change(vendor / 'YouTube.swift', 'var existingITags = Set<Int>()',
+           'var existingStreamURLs = Set<String>()')
+    change(vendor / 'YouTube.swift', 'existingITags.insert(stream.itag.itag).inserted',
+           'existingStreamURLs.insert(stream.url.absoluteString).inserted')
     # The app emits structured diagnostics instead of raw upstream URLs/bodies.
     for path in vendor.rglob('*.swift'):
         text = path.read_text()

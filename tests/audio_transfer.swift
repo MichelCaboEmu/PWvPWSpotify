@@ -49,6 +49,22 @@ private final class Observations: @unchecked Sendable {
                 check(observed.contains("audio_transfer_failed"), "failed transfer reported")
             }
         }
+        let observed = Observations()
+        let refused = URL(string: base + "/denied")!
+        let good = URL(string: base + "/ok206")!
+        let alternative = try await PWAudioTransfer.downloadAlternatives([refused, refused, good],
+            allowed: { $0.scheme == "http" && $0.host == "127.0.0.1" },
+            report: { event, _, _ in observed.event(event) }, progress: { _, _ in })
+        defer { try? FileManager.default.removeItem(at: alternative) }
+        check(observed.contains("audio_stream_alternative"), "refused stream advances to an already returned alternative")
+        check(try Data(contentsOf: alternative).count == 4096, "alternative produces complete audio bytes")
+        let limited = URL(string: base + "/limited")!
+        do {
+            let unexpected = try await PWAudioTransfer.downloadAlternatives([limited, good],
+                allowed: { $0.host == "127.0.0.1" }, report: { _, _, _ in }, progress: { _, _ in })
+            try? FileManager.default.removeItem(at: unexpected)
+            fatalError("FAIL: HTTP 429 must stop rather than try another stream")
+        } catch let error as PWAudioHTTPError { check(error.status == 429, "rate limit stops fallback") }
         print("PASS: \(count) audio transfer checks")
     }
 }

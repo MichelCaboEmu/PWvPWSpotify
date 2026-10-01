@@ -514,36 +514,40 @@ private final class PWDownloadStore {
         try Task.checkCancellation()
         pwEvent("extraction_finished", streams.count, details: trace)
         progress("Téléchargement du fichier audio…")
-        guard let stream = streams.filterAudioOnly().filter({ $0.fileExtension == .m4a }).highestAudioBitrateStream(),
-              PWDownloadRules.mediaURL(stream.url) else { throw pwError("Aucun flux M4A compatible accessible sur cet iPhone.") }
-        pwEvent("audio_download_started", details: trace.merging(["timeout_seconds": 120, "range_requested": true]) { _, new in new })
-        let transfer = PWAudioTransfer(report: { event, status, details in
-            pwEvent(event, status, details: trace.merging(details) { _, new in new })
-        }, progress: { bytes, expected in
-            let text = expected > 0
-                ? String(format: "Téléchargement : %.0f %% (%.1f / %.1f Mo)", Double(bytes) * 100 / Double(expected), Double(bytes) / 1_000_000, Double(expected) / 1_000_000)
-                : String(format: "Téléchargement : %.1f Mo reçus", Double(bytes) / 1_000_000)
-            Task { @MainActor in progress(text) }
-        })
+        let compatible = streams.filterAudioOnly().filter { $0.fileExtension == .m4a && PWDownloadRules.mediaURL($0.url) }
+        let ordered = compatible.enumerated().sorted {
+            let left = $0.element.bitrate ?? 0, right = $1.element.bitrate ?? 0
+            return left == right ? $0.offset < $1.offset : left > right
+        }.map { $0.element }
+        guard !ordered.isEmpty else { throw pwError("Aucun flux M4A compatible accessible sur cet iPhone.") }
+        pwEvent("audio_download_started", details: trace.merging(["timeout_seconds": 120, "range_requested": true,
+            "available_streams": ordered.count]) { _, new in new })
         let file: URL
-        do { file = try await transfer.download(stream.url) }
-        catch let error as URLError where error.code == .timedOut {
-            throw PWDownloadError(message: "Le transfert audio a dépassé son délai (20 s sans données ou 120 s au total). La file est en pause. Les logs indiquent les octets reçus et la réponse du serveur.", pausesQueue: true)
-        }
         do {
-            try Task.checkCancellation()
-            progress("Vérification du fichier audio…")
-            let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            guard size > 1024, size <= 128 * 1024 * 1024 else { throw pwError("Fichier audio vide ou trop volumineux (limite 128 Mo).") }
-            let asset = AVURLAsset(url: file)
-            let duration = try await asset.load(.duration).seconds
-            let audio = try await asset.loadTracks(withMediaType: .audio)
-            pwEvent("audio_validation", details: trace.merging(["bytes": size, "actual_duration": duration, "audio_tracks": audio.count]) { _, new in new })
-            guard !audio.isEmpty, duration.isFinite, abs(duration - track.duration) <= max(8, track.duration * 0.05) else {
-                throw pwError("Le fichier reçu est incomplet ou sa durée ne correspond pas au morceau.")
+            file = try await PWAudioTransfer.downloadAlternatives(ordered.map { $0.url }, report: { event, status, details in
+                pwEvent(event, status, details: trace.merging(details) { _, new in new })
+            }, progress: { bytes, expected in
+                let text = expected > 0
+                    ? String(format: "Téléchargement : %.0f %% (%.1f / %.1f Mo)", Double(bytes) * 100 / Double(expected), Double(bytes) / 1_000_000, Double(expected) / 1_000_000)
+                    : String(format: "Téléchargement : %.1f Mo reçus", Double(bytes) / 1_000_000)
+                Task { @MainActor in progress(text) }
+            })
+        } catch let error as URLError where error.code == .timedOut {
+            throw PWDownloadError(message: "Le transfert audio a dépassé son délai (20 s sans données ou 120 s au total). La file est en pause. Les logs indiquent les octets reçus et la réponse du serveur.", pausesQueue: true)
+        } catch let error as PWAudioHTTPError where error.status == 429 {
+            throw PWDownloadError(message: "YouTube limite les transferts (HTTP 429). La file est en pause ; réessaie plus tard.", pausesQueue: true)
+        }
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Task.checkCancellation()
+        progress("Préparation et vérification du fichier M4A…")
+        do {
+            return try await PWAudioContainer.normalize(file, expectedDuration: track.duration) { event, details in
+                pwEvent(event, details: trace.merging(details) { _, new in new })
             }
-            return file
-        } catch { try? FileManager.default.removeItem(at: file); throw error }
+        } catch {
+            pwEvent("audio_container_failed", (error as NSError).code, details: trace.merging(PWDownloadLog.error(error)) { _, new in new })
+            throw error
+        }
     }
 }
 

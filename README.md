@@ -93,6 +93,19 @@ incluent la réponse HTTP immédiate, les octets, la vitesse et les délais, san
 l’URL signée du flux. Les tests réseau utilisent un serveur local contrôlé ;
 ils ne prouvent pas l’accessibilité de tous les titres YouTube sur l’iPhone.
 
+Les flux M4A fragmentés sont maintenant remballés sur l’appareil avec
+AVAssetReader/AVAssetWriter, sans réencoder l’AAC. La validation porte sur les
+paquets recopiés et le fichier final, pas seulement sur la durée du conteneur
+source : les logs utilisateur du build `ce84f585` montrent 17 transferts complets
+rejetés avec une durée déclarée proche du double. Le nouvel événement
+`audio_container_packets` permet de distinguer les durées déclarée, audio et
+finale. Aucun correctif arbitraire « diviser par deux » n’est appliqué.
+Si un flux renvoie 403/410, l’app essaie au maximum trois URL distinctes déjà
+fournies par l’extracteur pour la même vidéo, par qualité décroissante. Un 429
+arrête les essais et met la file en pause. Les refus restent visibles dans les
+logs. Les tests couvrent une tonalité AAC/DASH synthétique, le décodage complet
+du M4A produit, les refus HTTP et la conservation des contrôles de durée.
+
 Choisir le dossier avec Fichiers, ou conserver **Spotify Downloads** dans les
 documents de Spotify. Les fichiers existants sont préservés. La file indique les
 erreurs et permet de reprendre ; après fermeture de l’app, elle reste en pause
