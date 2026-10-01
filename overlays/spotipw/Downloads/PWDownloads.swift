@@ -653,6 +653,15 @@ final class PWDownloadsBridge: NSObject, UIDocumentPickerDelegate {
     }
     @objc static func recordDiagnostics() {
         let store = PWDownloadStore.shared
+        let library = PWLocalLibrary.shared
+        pwEvent("library_snapshot", library.catalog.entries.count, details: ["playlists": library.catalog.playlists.count,
+            "metadata_status": library.metadataStatus, "metadata_active": library.metadataTask != nil,
+            "metadata_errors": library.catalog.entries.values.filter { $0.metadataError != nil }.count,
+            "soundcloud_configured": PWSoundCloudAccess.token != nil,
+            "soundcloud_fallback": UserDefaults.standard.bool(forKey: "spotifyglass.download.soundcloudFallback")])
+        for entry in library.catalog.entries.values.filter({ $0.metadataError != nil }).prefix(10) {
+            pwEvent("metadata_error_snapshot", details: ["title": entry.track.title, "message": entry.metadataError ?? ""])
+        }
         pwEvent("queue_snapshot", store.jobs.count, details: ["importing": store.importing,
             "import_error": store.importError ?? "", "selected_playlist": store.selectedPlaylist ?? "", "consent_required": store.consentSource != nil])
         for job in store.jobs {

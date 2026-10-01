@@ -29,6 +29,7 @@ extension PWLocalEntry {
 final class PWLocalLibrary {
     static let shared = PWLocalLibrary()
     private(set) var catalog = PWLibraryCatalog()
+    private var availability: [String: (Date, Bool)] = [:]
     var metadataStatus = "Pochette, titre, artiste, album et année si disponibles"
     var metadataTask: Task<Void, Never>?
     private var url: URL {
@@ -47,17 +48,20 @@ final class PWLocalLibrary {
         NotificationCenter.default.post(name: pwChanged, object: nil)
     }
     func available(_ id: String) -> PWLocalEntry? {
-        guard let entry = catalog.entries[id], entry.exists() else { return nil }
-        return entry
+        guard let entry = catalog.entries[id] else { return nil }
+        if let cached = availability[id], Date().timeIntervalSince(cached.0) < 1 { return cached.1 ? entry : nil }
+        let present = entry.exists(); availability[id] = (Date(), present)
+        return present ? entry : nil
     }
     func rememberPlaylist(uri: String, title: String, tracks: [PWAudioTrack], complete: Bool) {
         catalog.remember(uri: uri, title: title, tracks: tracks, complete: complete); persist()
     }
     func record(track: PWAudioTrack, job: PWDownloadJob, filename: String) {
+        availability.removeValue(forKey: track.id)
         catalog.entries[track.id] = PWLocalEntry(track: track, folder: job.folder, directory: "Playlist-" + job.id, filename: filename)
         persist()
     }
-    func replace(_ entry: PWLocalEntry) { catalog.entries[entry.track.id] = entry; persist() }
+    func replace(_ entry: PWLocalEntry) { availability.removeValue(forKey: entry.track.id); catalog.entries[entry.track.id] = entry; persist() }
     func migrate(_ jobs: [PWDownloadJob]) {
         var imported = 0
         for job in jobs {
