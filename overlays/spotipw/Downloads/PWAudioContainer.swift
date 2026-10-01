@@ -71,7 +71,11 @@ enum PWAudioContainer {
             guard time.isNumeric, duration.isNumeric, time.seconds.isFinite, duration.seconds.isFinite,
                   duration.seconds > 0, time.seconds >= end.seconds - 0.05,
                   time.seconds <= end.seconds + 0.1 else {
-                throw error("Les paquets audio présentent une rupture ou un horodatage invalide.")
+                report("audio_container_timing_error", ["buffer": buffers, "timestamp": time.seconds,
+                    "buffer_duration": duration.seconds, "previous_end": end.seconds,
+                    "samples": CMSampleBufferGetNumSamples(sample), "sample_rate": audioFormat.pointee.mSampleRate,
+                    "frames_per_packet": audioFormat.pointee.mFramesPerPacket])
+                throw error("Horodatage audio invalide au bloc \(buffers) : position \(time.seconds), durée \(duration.seconds), fin précédente \(end.seconds), échantillons \(CMSampleBufferGetNumSamples(sample)).")
             }
             guard input.append(sample) else { throw writer.error ?? error("Impossible de recopier les paquets audio.") }
             end = CMTimeAdd(time, duration)

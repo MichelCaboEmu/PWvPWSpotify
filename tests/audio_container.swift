@@ -36,7 +36,7 @@ import AVFoundation
             let source = root.appendingPathComponent(name + ".m4a")
             try data.write(to: source)
             let result = try await PWAudioContainer.normalize(source, expectedDuration: 12) { event, fields in
-                print(event, fields)
+                FileHandle.standardOutput.write(Data("\(event) \(fields)\n".utf8))
             }
             defer { try? FileManager.default.removeItem(at: result) }
             let asset = AVURLAsset(url: result, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
