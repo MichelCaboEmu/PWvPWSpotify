@@ -12,7 +12,7 @@ final class PWOfflinePlayerController: UIViewController {
     private let elapsed = UILabel(), remaining = UILabel(), saved = UIImageView()
     private let slider = PWOfflineScrubber(), play = UIButton(type: .system)
     private let shuffle = UIButton(type: .system), repeatButton = UIButton(type: .system)
-    private var close: UIButton!, more: UIButton!, previous: UIButton!, next: UIButton!, lyrics: UIButton!, queue: UIButton!
+    private var close: UIButton!, more: UIButton!, previous: UIButton!, nextButton: UIButton!, lyrics: UIButton!, queue: UIButton!
     private let devices = AVRoutePickerView()
     private var timer: Timer?, observer: NSObjectProtocol?
     private let gradient = CAGradientLayer()
@@ -94,14 +94,14 @@ final class PWOfflinePlayerController: UIViewController {
         repeatButton.accessibilityLabel = "Répétition"; repeatButton.addAction(UIAction { [weak self] _ in self?.model.cycleRepeat(); self?.refresh() }, for: .touchUpInside)
         play.tintColor = .white; play.addAction(UIAction { [weak self] _ in self?.model.toggle(); self?.refresh() }, for: .touchUpInside)
         previous = button("backward.fill", "Titre précédent", size: 36) { [weak self] in self?.model.previous() }
-        next = button("forward.fill", "Titre suivant", size: 36) { [weak self] in self?.model.next() }
+        nextButton = button("forward.fill", "Titre suivant", size: 36) { [weak self] in self?.model.next() }
         lyrics = button("quote.bubble", "Paroles indisponibles hors connexion", size: 22) {}
         lyrics.isEnabled = false; lyrics.tintColor = UIColor.white.withAlphaComponent(0.4)
         queue = button("list.bullet", "File d’attente", size: 22) { [weak self] in self?.showQueue() }
         devices.tintColor = .white; devices.activeTintColor = .systemGreen
         devices.accessibilityLabel = "Choisir la sortie audio"
         let elements: [UIView] = [heading, close, more, cover, song, artist, saved, slider, elapsed, remaining,
-                                 shuffle, previous, play, next, repeatButton, lyrics, devices, queue]
+                                 shuffle, previous, play, nextButton, repeatButton, lyrics, devices, queue]
         for element in elements { content.addSubview(element) }
         observer = NotificationCenter.default.addObserver(forName: pwChanged, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.refresh() } }
         refresh()
@@ -125,7 +125,7 @@ final class PWOfflinePlayerController: UIViewController {
             item.frame = CGRect(x: center - 22, y: footerY, width: 44, height: 44)
         }
         let controlsY = footerY - 64
-        for (index, item) in [shuffle, previous!, play, next!, repeatButton].enumerated() {
+        for (index, item) in [shuffle, previous!, play, nextButton!, repeatButton].enumerated() {
             let center = margin + 22 + (width - 2 * margin - 44) * CGFloat(index) / 4
             item.frame = CGRect(x: center - 26, y: controlsY, width: 52, height: 56)
         }
