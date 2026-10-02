@@ -46,6 +46,11 @@ import Foundation
         precondition(PWMetadataRules.artworkURL("spotify:image:" + String(repeating: "a", count: 40)) == "https://i.scdn.co/image/" + String(repeating: "a", count: 40))
         precondition(PWMetadataRules.artworkURL("https://i.scdn.co.evil.example/x") == nil)
         precondition(PWMetadataRules.bestArtwork(["64": "https://i.scdn.co/image/small", "640": "https://i.scdn.co/image/large"]) == "https://i.scdn.co/image/large")
+        let nodes = PWAudiusPolicy.announcedHosts(["user": ["creator_node_endpoint": "https://node.example.org, http://127.0.0.1, https://localhost, https://10.0.0.1"], "placement_hosts": "https://other.example.net"])
+        precondition(nodes == ["node.example.org", "other.example.net"])
+        precondition(PWAudiusPolicy.mediaURL(URL(string: "https://node.example.org/content/audio")!, announced: nodes))
+        precondition(!PWAudiusPolicy.mediaURL(URL(string: "https://node.example.org.evil.net/content/audio")!, announced: nodes))
+        precondition(!PWAudiusPolicy.mediaURL(URL(string: "https://api.audius.co@localhost/file")!, announced: nodes))
         enum RetryFailure: Error { case forbidden, missing }
         var attempts: [Int] = [], waits = 0, fallback = 0
         let answer = try await PWMediaRetry.run(operation: { n in attempts.append(n); if n == 1 { throw RetryFailure.forbidden }; return "ok" }, forbidden: { ($0 as? RetryFailure) == .forbidden }, waiting: { waits += 1 }, sleep: {})

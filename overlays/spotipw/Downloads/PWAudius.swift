@@ -5,11 +5,6 @@ import AVFoundation
 // paid key or SoundCloud token. Only creator-enabled, ungated downloads.
 final class PWAudius: NSObject, URLSessionTaskDelegate {
     static let shared = PWAudius()
-    static func mediaURL(_ url: URL) -> Bool {
-        let host = url.host?.lowercased() ?? ""
-        return url.scheme == "https" && url.user == nil && url.password == nil && (url.port == nil || url.port == 443) &&
-            (host == "audius.co" || host.hasSuffix(".audius.co"))
-    }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(request.url?.host == "api.audius.co" && request.url?.scheme == "https" ? request : nil)
@@ -33,7 +28,7 @@ final class PWAudius: NSObject, URLSessionTaskDelegate {
         for try await byte in stream { guard bytes.count < 4 * 1024 * 1024 else { throw pwError("Réponse Audius trop volumineuse.") }; bytes.append(byte) }
         let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any]
         let rows = object?["data"] as? [[String: Any]] ?? []
-        var matches: [(String, Double)] = []
+        var matches: [(String, Double, Set<String>)] = []
         for row in rows {
             let artist = (row["user"] as? [String: Any])?["name"] as? String ?? ""
             let candidate = PWAudioCandidate(id: row["id"] as? String ?? "", title: row["title"] as? String ?? "", artist: artist, duration: row["duration"] as? Double ?? 0)
@@ -44,14 +39,15 @@ final class PWAudius: NSObject, URLSessionTaskDelegate {
                 "rejection": reason ?? (enabled ? "accepted" : "download_not_free")]) { _, new in new })
             guard enabled, reason == nil, !candidate.id.isEmpty, candidate.id.count < 100,
                   candidate.id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else { continue }
-            matches.append((candidate.id, abs(candidate.duration - track.duration)))
+            matches.append((candidate.id, abs(candidate.duration - track.duration), PWAudiusPolicy.announcedHosts(row)))
         }
-        guard let id = matches.sorted(by: { $0.1 < $1.1 }).first?.0 else {
+        guard let match = matches.sorted(by: { $0.1 < $1.1 }).first else {
             throw pwError("Audius : aucune correspondance sûre téléchargeable gratuitement. Ce catalogue ne contient pas tous les titres de Spotify.")
         }
         await progress("Téléchargement Audius…")
-        let media = URL(string: "https://api.audius.co/v1/tracks/" + id + "/download")!
-        let transfer = PWAudioTransfer(allowed: Self.mediaURL, report: { event, status, details in
+        let media = URL(string: "https://api.audius.co/v1/tracks/" + match.0 + "/download")!
+        let allowedHosts = match.2
+        let transfer = PWAudioTransfer(allowed: { PWAudiusPolicy.mediaURL($0, announced: allowedHosts) }, report: { event, status, details in
             pwEvent("audius_" + event, status, details: trace.merging(details) { _, new in new })
         }, progress: { bytes, total in Task { @MainActor in
             progress(total > 0 ? "Audius : \(Int(Double(bytes) * 100 / Double(total))) %" : "Audius : \(bytes / 1024) Ko")
