@@ -22,6 +22,28 @@ struct PWNativePlaylist {
         if let n = value as? UInt, n <= UInt(Int.max) { return Int(n) }
         return nil
     }
+    // A row menu only needs its selected loaded item. Unloaded neighbours,
+    // recommendations or hidden rows must not invalidate that individual track.
+    static func menuTracks(header: Any, requestedURI: String) -> [PWAudioTrack] {
+        let live = field(header, "playlistModel").flatMap { field($0, "model") }
+        guard let entity = live ?? field(header, "entityModel"),
+              let entityURI = uri(field(entity, "entityURL")),
+              let path = PWDownloadRules.playlistPath(requestedURI),
+              PWDownloadRules.playlistPath(entityURI) == path,
+              let tracks = field(entity, "tracks"), let items = field(tracks, "items") as? [Any], items.count <= 10000 else { return [] }
+        return items.compactMap { item in
+            guard let value = field(item, "loaded"), field(value, "isRecommendation") as? Bool == false,
+                  let link = uri(field(value, "uri")), link.hasPrefix("spotify:track:"),
+                  let id = link.split(separator: ":").last.map(String.init), PWDownloadRules.identifier(id, length: 22),
+                  let meta = field(value, "metadata"), let title = field(meta, "name") as? String, !title.isEmpty,
+                  let artists = field(meta, "artists") as? [Any],
+                  let artist = artists.first.flatMap({ field($0, "name") as? String }), !artist.isEmpty,
+                  let duration = field(meta, "duration") as? Double, duration.isFinite, duration > 0, duration <= 86400 else { return nil }
+            let covers = field(meta, "albumCovers") as? [String: Any] ?? field(meta, "covers") as? [String: Any] ?? [:]
+            return PWAudioTrack(id: id, title: title, artist: artist, duration: duration,
+                album: field(meta, "albumName") as? String, artworkURL: PWMetadataRules.bestArtwork(covers.compactMapValues { uri($0) }))
+        }
+    }
     static func read(header: Any, requestedURI: String, report: (String, Int) -> Void = { _, _ in }) -> PWNativePlaylist? {
         // The header keeps its own snapshot. Prefer the underlying playlist model
         // when available; both field paths were verified in 9.1.78.

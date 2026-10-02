@@ -35,6 +35,14 @@ extension PWDownloadsBridge {
     }
     @objc static func startOfflineMonitor() { PWOfflineStartup.shared.start() }
     @objc static func stopOfflinePlayback() { PWOfflinePlayer.shared.stop() }
+    // FTPViewController owns playlistViewModel; the header controller is a sibling,
+    // not an ancestor of a track cell. Field verified in 9.1.78 Swift metadata.
+    @objc(playlistModelFromController:)
+    static func playlistModel(from controller: UIViewController) -> AnyObject? {
+        guard String(reflecting: type(of: controller)).contains("FTPViewController"),
+              let model = PWNativePlaylist.field(controller, "playlistViewModel") else { return nil }
+        return model as AnyObject
+    }
     private static var nativeCache: (key: ObjectIdentifier, uri: String, time: Date, tracks: [PWAudioTrack])?
     @objc(trackInfoFromModel:uri:title:subtitle:)
     static func trackInfo(model: AnyObject, uri: String, title: String, subtitle: String) -> NSDictionary? {
@@ -44,7 +52,7 @@ extension PWDownloadsBridge {
         if let cached = nativeCache, cached.key == key, cached.uri == uri, Date().timeIntervalSince(cached.time) < 1 {
             tracks = cached.tracks
         } else {
-            tracks = PWNativePlaylist.read(header: model, requestedURI: uri)?.tracks ?? []
+            tracks = PWNativePlaylist.menuTracks(header: model, requestedURI: uri)
             nativeCache = (key, uri, Date(), tracks)
         }
         // Resolve only exact, unambiguous displayed titles in THIS playlist.
@@ -58,13 +66,15 @@ extension PWDownloadsBridge {
         info["album"] = track.album; info["artwork"] = track.artworkURL
         return info as NSDictionary
     }
-    private static var menuTrack: (track: PWAudioTrack, time: Date)?
+    private static var menuTrack: (selection: PWTrackMenuSelection, time: Date)?
     @objc(selectMenuTrack:)
     static func selectMenuTrack(_ info: NSDictionary?) {
         menuTrack = nil
         guard let id = info?["id"] as? String, let title = info?["title"] as? String,
               let artist = info?["artist"] as? String, let duration = info?["duration"] as? Double else { return }
-        menuTrack = (PWAudioTrack(id: id, title: title, artist: artist, duration: duration, album: info?["album"] as? String, artworkURL: (info?["artwork"] as? String).flatMap(PWMetadataRules.artworkURL)), Date())
+        let track = PWAudioTrack(id: id, title: title, artist: artist, duration: duration, album: info?["album"] as? String, artworkURL: (info?["artwork"] as? String).flatMap(PWMetadataRules.artworkURL))
+        let destination = PWDownloadDestination(uri: info?["playlistURI"] as? String, title: info?["playlistTitle"] as? String)
+        menuTrack = (PWTrackMenuSelection(track, destination: destination), Date())
     }
     @objc(setSpotifyAuthorization:)
     static func setSpotifyAuthorization(_ authorization: String?) {
@@ -74,12 +84,12 @@ extension PWDownloadsBridge {
     private static var menuButtonKey: UInt8 = 0
     @objc(installTrackMenu:)
     static func installTrackMenu(_ menu: UIViewController) {
-        let selected: PWAudioTrack
-        if let box = objc_getAssociatedObject(menu, &menuSelectionKey) as? PWTrackMenuSelection { selected = box.track }
+        let selection: PWTrackMenuSelection
+        if let box = objc_getAssociatedObject(menu, &menuSelectionKey) as? PWTrackMenuSelection { selection = box }
         else {
-            guard let selection = menuTrack, Date().timeIntervalSince(selection.time) < 4 else { return }
-            selected = selection.track
-            objc_setAssociatedObject(menu, &menuSelectionKey, PWTrackMenuSelection(selected), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            guard let pending = menuTrack, Date().timeIntervalSince(pending.time) < 4 else { return }
+            selection = pending.selection
+            objc_setAssociatedObject(menu, &menuSelectionKey, selection, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
             menuTrack = nil
         }
         func table(_ view: UIView, _ depth: Int = 0) -> UITableView? {
@@ -88,11 +98,11 @@ extension PWDownloadsBridge {
             return view.subviews.compactMap { table($0, depth + 1) }.first
         }
         guard let rows = table(menu.view), rows.bounds.width > 0 else { return }
-        if let button = objc_getAssociatedObject(menu, &menuButtonKey) as? UIButton, button.isDescendant(of: rows) { return }
+        if let button = objc_getAssociatedObject(menu, &menuButtonKey) as? UIButton, button.isDescendant(of: rows) { refreshTrackMenuHeader(rows); return }
         let button = UIButton(type: .system)
         button.frame = CGRect(x: 0, y: 0, width: rows.bounds.width, height: 58)
         button.overrideUserInterfaceStyle = .dark
-        let saved = PWLocalLibrary.shared.available(selected.id) != nil
+        let saved = PWLocalLibrary.shared.available(selection.track.id) != nil
         var config = UIButton.Configuration.plain()
         config.title = saved ? "Téléchargé sur cet iPhone" : "Télécharger ce titre"
         config.image = UIImage(systemName: saved ? "checkmark.circle.fill" : "arrow.down.circle")
@@ -101,20 +111,22 @@ extension PWDownloadsBridge {
         button.configuration = config; button.contentHorizontalAlignment = .leading
         button.addAction(UIAction { [weak menu] _ in
             guard let menu = menu else { return }
-            chooseSource(selected, from: menu)
+            chooseSource(selection.track, from: menu, destination: selection.destination)
         }, for: .touchUpInside)
-        // Preserve Spotify's footer and other tweaks' header controls.
-        let prior = rows.tableFooterView
-        let height = prior?.bounds.height ?? 0
-        let wrapper = UIView(frame: CGRect(x: 0, y: 0, width: rows.bounds.width, height: height + 58))
-        if let prior = prior { wrapper.addSubview(prior) }
-        button.frame.origin.y = height; button.autoresizingMask = [.flexibleWidth]
-        wrapper.addSubview(button); rows.tableFooterView = wrapper
+        // Header is adjacent to the first action. Never append after Spotify's
+        // footer: it may be a screen-height spacer. Keep native header content.
+        let wrapper = PWTrackMenuHeader(prior: rows.tableHeaderView, button: button, width: rows.bounds.width)
+        rows.tableHeaderView = wrapper
         objc_setAssociatedObject(menu, &menuButtonKey, button, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         rows.invalidateIntrinsicContentSize()
     }
-    static func chooseSource(_ track: PWAudioTrack, from presenter: UIViewController) {
-        let alert = UIAlertController(title: track.title, message: track.artist, preferredStyle: .actionSheet)
+    @objc(refreshTrackMenuHeader:)
+    static func refreshTrackMenuHeader(_ table: UITableView) {
+        guard let header = table.tableHeaderView as? PWTrackMenuHeader else { return }
+        if header.resize(width: table.bounds.width) { table.tableHeaderView = header }
+    }
+    static func chooseSource(_ track: PWAudioTrack, from presenter: UIViewController, destination: PWDownloadDestination? = nil) {
+        let alert = UIAlertController(title: track.title, message: track.artist + (destination.map { "\nDossier : " + $0.title } ?? ""), preferredStyle: .actionSheet)
         alert.overrideUserInterfaceStyle = .dark
         if let entry = PWLocalLibrary.shared.available(track.id) {
             alert.addAction(UIAlertAction(title: "Écouter le fichier téléchargé", style: .default) { _ in
@@ -122,10 +134,18 @@ extension PWDownloadsBridge {
                 catch { PWLocalLibraryController.notice(error.localizedDescription, from: presenter) }
             })
             alert.addAction(UIAlertAction(title: "Partager le fichier", style: .default) { _ in PWLocalLibraryController.share(entry, from: presenter, anchor: presenter.view) })
-        } else {
+        }
+        if let destination = destination, PWLocalLibrary.shared.available(track.id) != nil,
+           PWLocalLibrary.shared.available(track.id, playlist: destination.uri) == nil {
+            alert.addAction(UIAlertAction(title: "Ajouter au dossier « \(destination.title) »", style: .default) { _ in
+                PWDownloadStore.shared.downloadTrack(track, source: PWDownloadStore.selectedSource, destination: destination)
+                panel(PWDownloadQueueController(style: .insetGrouped), from: presenter)
+            })
+        }
+        if PWLocalLibrary.shared.available(track.id) == nil {
             for source in [0, 1, 3] {
                 alert.addAction(UIAlertAction(title: pwSourceTitle(source), style: .default) { _ in
-                    PWDownloadStore.shared.downloadTrack(track, source: source)
+                    PWDownloadStore.shared.downloadTrack(track, source: source, destination: destination)
                     panel(PWDownloadQueueController(style: .insetGrouped), from: presenter)
                 })
             }
@@ -205,4 +225,29 @@ final class PWMetadataController: UITableViewController {
     }
 }
 
-private final class PWTrackMenuSelection: NSObject { let track: PWAudioTrack; init(_ track: PWAudioTrack) { self.track = track } }
+private final class PWTrackMenuSelection: NSObject {
+    let track: PWAudioTrack
+    let destination: PWDownloadDestination?
+    init(_ track: PWAudioTrack, destination: PWDownloadDestination?) { self.track = track; self.destination = destination }
+}
+
+@MainActor
+private final class PWTrackMenuHeader: UIView {
+    private let prior: UIView?, button: UIButton
+    init(prior: UIView?, button: UIButton, width: CGFloat) {
+        self.prior = prior; self.button = button
+        super.init(frame: .zero)
+        if let prior = prior { addSubview(prior) }
+        addSubview(button); _ = resize(width: width)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @discardableResult func resize(width: CGFloat) -> Bool {
+        let height = prior?.bounds.height ?? 0
+        let next = CGRect(x: 0, y: 0, width: width, height: height + 58)
+        let changed = frame != next
+        frame = next
+        prior?.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        button.frame = CGRect(x: 0, y: height, width: width, height: 58)
+        return changed
+    }
+}

@@ -72,7 +72,7 @@ final class PWLocalLibrary {
     func record(track: PWAudioTrack, job: PWDownloadJob, stored: PWStoredFile, previous: PWLocalEntry? = nil) {
         var entry = previous ?? PWLocalEntry(track: track, folder: job.folder, directory: stored.directory, filename: stored.filename)
         entry.track = entry.track.enriched(with: track)
-        entry.folder = job.folder; entry.directory = stored.directory; entry.filename = stored.filename; entry.playlistURI = job.uri
+        entry.folder = job.folder; entry.directory = stored.directory; entry.filename = stored.filename; entry.playlistURI = job.storageURI
         replace(entry)
     }
     func replace(_ entry: PWLocalEntry) {
@@ -132,7 +132,7 @@ final class PWLocalLibrary {
         var imported = 0
         for job in jobs {
             // Never mark an old incomplete queue as a complete playlist.
-            catalog.remember(uri: job.uri, title: job.title, tracks: job.items.map(\.track), complete: false)
+            catalog.remember(uri: job.storageURI, title: job.storageTitle, tracks: job.items.map(\.track), complete: false)
             for item in job.items where item.state == "done" {
                 guard let filename = item.file else { continue }
                 let entry = PWLocalEntry(track: item.track, folder: job.folder, directory: "Playlist-" + job.id, filename: filename)

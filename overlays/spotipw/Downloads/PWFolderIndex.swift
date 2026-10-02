@@ -1,5 +1,15 @@
 import Foundation
 
+struct PWDownloadDestination: Codable, Equatable {
+    let uri: String
+    let title: String
+    init?(uri: String?, title: String?) {
+        guard let uri = uri, PWDownloadRules.playlistPath(uri) != nil,
+              let title = title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        self.uri = uri; self.title = title
+    }
+}
+
 struct PWStoredFile { var directory: String; var filename: String }
 struct PWPlaylistFolder: Codable {
     var name: String

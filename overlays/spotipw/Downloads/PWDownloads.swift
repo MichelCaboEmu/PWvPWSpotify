@@ -133,6 +133,9 @@ struct PWDownloadJob: Codable {
     var paused = false
     var lastError: String?
     var notice: String?
+    var destination: PWDownloadDestination?
+    var storageURI: String { destination?.uri ?? uri }
+    var storageTitle: String { destination?.title ?? title }
 }
 
 actor PWDownloadFiles {
@@ -315,7 +318,7 @@ final class PWDownloadStore {
     }
     func enqueue(_ proposed: PWDownloadJob, complete: Bool) {
         var job = proposed
-        if let index = jobs.firstIndex(where: { $0.uri == job.uri }) {
+        if let index = jobs.firstIndex(where: { $0.uri == job.uri && $0.storageURI == job.storageURI }) {
             let old = jobs[index]
             job.id = old.id; job.folder = old.folder
             if !complete {
@@ -327,17 +330,17 @@ final class PWDownloadStore {
         // Existing audio is copied locally to this playlist's stable directory
         // by the worker; it is never fetched from a provider a second time.
         for i in job.items.indices { job.items[i].state = "pending"; job.items[i].error = nil }
-        PWLocalLibrary.shared.rememberPlaylist(uri: job.uri, title: job.title, tracks: job.items.map(\.track), complete: complete)
+        PWLocalLibrary.shared.rememberPlaylist(uri: job.storageURI, title: job.storageTitle, tracks: job.items.map(\.track), complete: complete && job.destination == nil)
         jobs.append(job)
         pwEvent("playlist_incremental", details: ["playlist": job.title,
             "already_saved": job.items.filter { $0.state == "done" }.count,
             "to_download": job.items.filter { $0.state == "pending" }.count])
     }
-    func downloadTrack(_ track: PWAudioTrack, source: Int) {
+    func downloadTrack(_ track: PWAudioTrack, source: Int, destination: PWDownloadDestination? = nil) {
         pauseAll()
-        selectedPlaylist = track.title; importError = nil
+        selectedPlaylist = destination?.title ?? track.title; importError = nil
         enqueue(PWDownloadJob(uri: "spotify:track:" + track.id, title: track.title, source: source,
-            folder: UserDefaults.standard.data(forKey: pwFolderKey), items: [PWDownloadItem(track: track)], skipped: 0), complete: true)
+            folder: UserDefaults.standard.data(forKey: pwFolderKey), items: [PWDownloadItem(track: track)], skipped: 0, destination: destination), complete: true)
         changed(); start()
     }
     func resumeAll() {
@@ -362,7 +365,7 @@ final class PWDownloadStore {
         guard let j = jobs.firstIndex(where: { $0.id == id }) else { return }
         jobs[j].paused = false; jobs[j].lastError = nil
         for i in jobs[j].items.indices {
-            if let saved = PWLocalLibrary.shared.available(jobs[j].items[i].track.id, playlist: jobs[j].uri) {
+            if let saved = PWLocalLibrary.shared.available(jobs[j].items[i].track.id, playlist: jobs[j].storageURI) {
                 jobs[j].items[i].state = "done"; jobs[j].items[i].file = saved.filename; jobs[j].items[i].error = nil
             } else if jobs[j].items[i].state != "working" {
                 jobs[j].items[i].state = "pending"; jobs[j].items[i].error = nil

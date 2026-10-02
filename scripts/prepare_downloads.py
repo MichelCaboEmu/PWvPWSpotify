@@ -46,7 +46,7 @@ def apply(root, sg, change):
         'CFBundlePackageType': 'BNDL', 'CFBundleVersion': '1'}))
     shutil.copy2(upstream / 'LICENSE', bundle / 'LICENSE-YouTubeKit.txt')
     change(sg / 'tweak/Makefile', 'SafariServices Security MetricKit CoreMedia CoreVideo',
-           'SafariServices Security MetricKit CoreMedia CoreVideo JavaScriptCore WebKit')
+           'SafariServices Security MetricKit CoreMedia CoreVideo JavaScriptCore WebKit AVKit')
     change(sg / 'scripts/pipeline.sh', 'FILES=("$TWEAK_DEB")', 'FILES=("$TWEAK_DEB" "$ROOT/PWYouTubeKit.bundle")')
     # Documents are exported audio, visible through Files; the private queue lives in Application Support.
     plist = sg / 'plist/liquid-glass.plist'
@@ -75,7 +75,57 @@ def apply(root, sg, change):
 
     redesigned = source / 'Redesigned/Playlist/PlaylistHeader.x'
     change(redesigned, '#import "Playlist.h"', '#import "Playlist.h"\n#import "Redesigned/Kit/SGRGlass.h"')
-    change(redesigned, '    for (UIView *v = toolbar; v && v != headerRoot; v = v.superview) {\n        if (![NSStringFromClass(v.class) containsString:@"HeaderView"]) continue;\n        conceal(v);\n        break;\n    }', '    // Spotify owns pull-to-reveal visibility and search. Style its control only.\n    static char kSearchGlass;\n    if (toolbar && toolbar.bounds.size.width > 0 && toolbar.bounds.size.height > 0)\n        SGRGlassCapsuleInside(toolbar, &kSearchGlass, toolbar.bounds.size, NO);')
+    change(redesigned, 'static void applyToolbar(UIView *headerRoot) {', '''// The toolbar contains two independent controls, Find and Sort. A glass layer
+// behind the entire toolbar made a double background and joined their spacing.
+// Keep Spotify's frames, gestures and pull-to-reveal lifecycle unchanged.
+static void pwStylePlaylistSearchControl(UIView *control) {
+    CGSize size = control.bounds.size;
+    if (size.width < 44 || size.height < 26 || size.height > 64) return;
+    UIVisualEffectView *pane = SGGlassAt(control, 0);
+    pane.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    pane.frame = control.bounds;
+    SGShapeGlass(pane, size.height / 2, YES);
+    if (UIAccessibilityIsReduceTransparencyEnabled()) {
+        pane.effect = nil; pane.backgroundColor = [UIColor colorWithWhite:0.12 alpha:1];
+    }
+    control.layer.cornerRadius = size.height / 2;
+    control.layer.cornerCurve = kCACornerCurveContinuous;
+    SGForEachView(control, ^(UIView *v) {
+        if (v == pane || [v isDescendantOfView:pane]) return;
+        v.backgroundColor = UIColor.clearColor;
+        v.layer.backgroundColor = NULL;
+        if ([v isKindOfClass:UILabel.class]) {
+            UILabel *label = (UILabel *)v;
+            label.textColor = UIColor.whiteColor;
+            label.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+        } else if ([v isKindOfClass:UITextField.class]) {
+            UITextField *field = (UITextField *)v;
+            field.borderStyle = UITextBorderStyleNone;
+            field.textColor = UIColor.whiteColor;
+            field.font = [UIFont systemFontOfSize:15];
+        } else if ([NSStringFromClass(v.class) containsString:@"IconView"]) {
+            // Same verified Encore setter used by Navbar/SearchField.x.
+            SEL setter = NSSelectorFromString(@"setForegroundColor:");
+            if ([v respondsToSelector:setter]) ((void(*)(id,SEL,id))objc_msgSend)(v,setter,UIColor.whiteColor);
+            else v.tintColor = UIColor.whiteColor;
+        }
+    });
+}
+static void pwStylePlaylistSearchChildren(UIView *view) {
+    for (UIView *child in view.subviews) {
+        if ([child isKindOfClass:UIVisualEffectView.class]) continue;
+        if ([child isKindOfClass:UIControl.class] && child.bounds.size.width >= 44 && child.bounds.size.height >= 26) {
+            pwStylePlaylistSearchControl(child);
+        } else {
+            // Layout wrappers must stay transparent but keep visibility/layout.
+            child.backgroundColor = UIColor.clearColor;
+            pwStylePlaylistSearchChildren(child);
+        }
+    }
+}
+
+static void applyToolbar(UIView *headerRoot) {''')
+    change(redesigned, '    for (UIView *v = toolbar; v && v != headerRoot; v = v.superview) {\n        if (![NSStringFromClass(v.class) containsString:@"HeaderView"]) continue;\n        conceal(v);\n        break;\n    }', '    // Spotify owns initial hiding and the pull-to-reveal gesture.\n    toolbar.backgroundColor = UIColor.clearColor;\n    pwStylePlaylistSearchChildren(toolbar);')
     change(redesigned, '#import "Playlist.h"', '#import "Playlist.h"\n#import "Shared/Downloads/PWDownloads.h"')
     change(redesigned, 'UIView *download = save ? nil : SGRFindByIdentifier(block, @"DownloadButton.Granular*", &kDownloadKey);',
            'UIView *download = PWDownloadsEnabled() ? PWDownloadControl(block, model) :\n'
@@ -108,3 +158,16 @@ def apply(root, sg, change):
         _download.frame = CGRectMake(x, y, side, side);
     }
     y += side;''')
+
+    # The download action shares the menu header with Speed and pitch. The
+    # original block must resize in-place instead of replacing its wrapper.
+    speed = source / 'Shared/Player/SpeedPitchMenu.x'
+    change(speed, '#import "Core/SGCore.h"', '#import "Core/SGCore.h"\n#import "Shared/Downloads/PWDownloads.h"')
+    change(speed, '        else table.tableHeaderView = self;',
+           '        else if ([self isDescendantOfView:table.tableHeaderView]) [PWDownloadsBridge refreshTrackMenuHeader:table];\n'
+           '        else table.tableHeaderView = self;')
+    change(speed, '    if (placed != block || fabs(block.frame.size.width - width) > 0.5) {',
+           '    if (!block.inFooter && placed != block && [block isDescendantOfView:placed]) {\n'
+           '        block.frame = CGRectMake(0, 0, width, [SGSpeedPitchView heightOpen:sg_open]);\n'
+           '        [PWDownloadsBridge refreshTrackMenuHeader:table];\n        return;\n    }\n'
+           '    if (placed != block || fabs(block.frame.size.width - width) > 0.5) {')

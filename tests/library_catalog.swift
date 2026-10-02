@@ -4,6 +4,13 @@ import Foundation
     static func main() async throws {
         let one = PWAudioTrack(id: "1234567890123456789012", title: "91's", artist: "PNL", duration: 234)
         let two = PWAudioTrack(id: "2234567890123456789012", title: "Nouveau", artist: "PNL", duration: 180)
+        let destination = PWDownloadDestination(uri: "spotify:collection:tracks", title: "Titres likés")!
+        let destinationRoundTrip = try JSONDecoder().decode(PWDownloadDestination.self, from: JSONEncoder().encode(destination))
+        precondition(destinationRoundTrip == destination)
+        precondition(PWDownloadDestination(uri: "spotify:track:" + one.id, title: one.title) == nil)
+        var destinations = PWPlaylistFolderIndex()
+        let folder = destinations.reserve(uri: destination.uri, title: destination.title, occupied: [])
+        precondition(destinations.reserve(uri: destination.uri, title: destination.title, occupied: [folder]) == folder, "single-track origin reuses full-playlist folder")
         var catalog = PWLibraryCatalog()
         catalog.remember(uri: "liked", title: "Titres likés", tracks: [one, one], complete: true)
         precondition(catalog.playlists["liked"]?.trackIDs == [one.id], "same ID appears once")

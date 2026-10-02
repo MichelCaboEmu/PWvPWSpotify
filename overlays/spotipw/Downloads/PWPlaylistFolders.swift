@@ -20,8 +20,8 @@ extension PWDownloadFiles {
                     index = try JSONDecoder().decode(PWPlaylistFolderIndex.self, from: bytes)
                 }
                 let occupied = Set(try fm.contentsOfDirectory(atPath: root.path))
-                let identity = job.uri.hasPrefix("spotify:track:") ? "pw:individual-tracks" : job.uri
-                let name = index.reserve(uri: identity, title: job.uri.hasPrefix("spotify:track:") ? "Titres individuels" : job.title, occupied: occupied)
+                let identity = job.destination?.uri ?? (job.uri.hasPrefix("spotify:track:") ? "pw:individual-tracks" : job.uri)
+                let name = index.reserve(uri: identity, title: job.destination?.title ?? (job.uri.hasPrefix("spotify:track:") ? "Titres individuels" : job.title), occupied: occupied)
                 let directory = root.appendingPathComponent(name, isDirectory: true)
                 try fm.createDirectory(at: directory, withIntermediateDirectories: true)
                 if let old = index.playlists[identity]?.tracks[track.id], PWLibraryCatalog.safeComponent(old),

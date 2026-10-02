@@ -25,7 +25,7 @@ static id modelFor(UIView *view) {
     for(UIResponder *r=view;r;r=r.nextResponder) {
         if (![r isKindOfClass:UIViewController.class]) continue;
         if (![NSStringFromClass(r.class) containsString:@"FreeTierPlaylist"]) continue;
-        id model=objectGetter(objectGetter(r,@"headerController"),@"defaultHeaderViewModel");
+        id model=[PWDownloadsBridge playlistModelFromController:(UIViewController *)r] ?: objectGetter(objectGetter(r,@"headerController"),@"defaultHeaderViewModel");
         if(model)return model;
     }
     return nil;
@@ -147,7 +147,8 @@ static void PWApplyTrackRow(UIView *cell) {
     NSString *title=PWRowText(PWIdentified(cell,@"Track.Row.Content.Title"));
     NSString *subtitle=PWRowText(PWIdentified(cell,@"Track.Row.Content.Subtitle"));
     if(!title.length || !subtitle.length)return;
-    NSDictionary *info=[PWDownloadsBridge trackInfoFromModel:model uri:context[@"uri"] title:title subtitle:subtitle];
+    NSMutableDictionary *info=[[PWDownloadsBridge trackInfoFromModel:model uri:context[@"uri"] title:title subtitle:subtitle] mutableCopy];
+    if(info){info[@"playlistURI"]=context[@"uri"];info[@"playlistTitle"]=context[@"title"];}
     if(button){
         objc_setAssociatedObject(button,&kTrackInfo,info,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         if(!objc_getAssociatedObject(button,&kTrackWatcher)){
@@ -175,6 +176,28 @@ static void PWApplyTrackRow(UIView *cell) {
     [cell bringSubviewToFront:badge];
 }
 
+%hook UIApplication
+- (void)sendEvent:(UIEvent *)event {
+    if(PWDownloadsEnabled() && event.type==UIEventTypeTouches) {
+        for(UITouch *touch in event.allTouches) if(touch.phase==UITouchPhaseBegan){[PWDownloadsBridge selectMenuTrack:nil];break;}
+        for(UITouch *touch in event.allTouches) {
+            if(touch.phase!=UITouchPhaseBegan)continue;
+            UIView *menuButton=nil, *cell=nil;
+            for(UIView *view=touch.view;view;view=view.superview){
+                if([view.accessibilityIdentifier hasPrefix:@"Components.UI.ContextMenuButton"])menuButton=view;
+                if([view isKindOfClass:UICollectionViewCell.class] || [view isKindOfClass:UITableViewCell.class]){cell=view;break;}
+            }
+            if(!menuButton || !cell)continue;
+            PWApplyTrackRow(cell);
+            NSDictionary *info=objc_getAssociatedObject(menuButton,&kTrackInfo);
+            [PWDownloadsBridge selectMenuTrack:info];
+            PWEventDetails(@"download",@"track_menu_selection",info ? 1 : 0,
+                @{@"cell_class":NSStringFromClass(cell.class),@"resolved":@(info!=nil)});
+        }
+    }
+    %orig;
+}
+%end
 %hook UIControl
 - (void)sendAction:(SEL)action to:(id)target forEvent:(UIEvent *)event {
     if(PWDownloadsEnabled()) for(UIView *view=(UIView *)self; view; view=view.superview){

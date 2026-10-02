@@ -70,6 +70,12 @@ enum DownloadTests {
         check(PWNativePlaylist.read(header: header, requestedURI: playlistURI)?.complete == false, "reject injected recommendations")
         header.entityModel.metadata.isLoaded = false
         check(PWNativePlaylist.read(header: header, requestedURI: playlistURI) == nil, "unloaded metadata is not a snapshot")
+        header.entityModel.tracks.items = [.loaded(nativeTrack), .unloaded(1),
+            .loaded(Item(uri: nativeTrack.uri, metadata: nativeTrack.metadata, isRecommendation: true))]
+        check(PWNativePlaylist.menuTracks(header: header, requestedURI: playlistURI).map(\.id) == [id], "row menu resolves loaded title despite partial neighbours and unloaded header")
+        check(PWNativePlaylist.menuTracks(header: header, requestedURI: "spotify:playlist:AAAAAAAAAAAAAAAAAAAAAA").isEmpty, "row menu rejects a different playlist")
+        header.entityModel.entityURL = URL(string: "spotify:collection:tracks")!
+        check(PWNativePlaylist.menuTracks(header: header, requestedURI: "spotify:collection:tracks").count == 1, "liked-songs row menu")
         let track = PWAudioTrack(id: id, title: "La vérité", artist: "Élodie", duration: 200)
         let exact = PWAudioCandidate(id: "aB1_cD2-eF3", title: "La Verite", artist: "Elodie", duration: 202)
         check(PWDownloadRules.score(exact, for: track) != nil, "accent-insensitive match")
