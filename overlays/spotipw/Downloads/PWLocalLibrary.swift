@@ -33,6 +33,7 @@ final class PWLocalLibrary {
     private var legacyExports: [PWLocalEntry] = []
     var metadataStatus = "Pochette, titre, artiste, album et année si disponibles"
     var metadataTask: Task<Void, Never>?
+    var organizationTask: Task<Void, Never>?
     private var url: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PWDownloads/library.json")
@@ -180,7 +181,10 @@ final class PWOfflinePlayer: NSObject {
     private func begin() throws {
         guard queue.indices.contains(index) else { stop(); return }
         releaseItem()
-        let entry = queue[index], location = try entry.location()
+        let queued = queue[index]
+        let entry = PWLocalLibrary.shared.available(queued.track.id, playlist: queued.playlistURI) ?? PWLocalLibrary.shared.available(queued.track.id) ?? queued
+        queue[index] = entry
+        let location = try entry.location()
         let scoped = location.root.startAccessingSecurityScopedResource()
         if scoped { access = location.root }
         guard entry.exists() else { releaseItem(); throw pwError("Ce fichier n’est plus disponible sur cet iPhone.") }

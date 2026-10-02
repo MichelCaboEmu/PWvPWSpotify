@@ -167,8 +167,11 @@ enum PWMetadata {
 extension PWLocalLibrary {
     func updateMetadata() {
         if metadataTask != nil { metadataTask?.cancel(); return }
-        let entries = allFiles.sorted { $0.track.title < $1.track.title }
+        metadataStatus = "Préparation du catalogue…"
         metadataTask = Task {
+            await organizationTask?.value
+            if Task.isCancelled { metadataTask = nil; metadataStatus = "Mise à jour arrêtée"; persist(); return }
+            let entries = allFiles.sorted { $0.track.title < $1.track.title }
             var success = 0, failures = 0, unmatched = 0
             var lastMatch: (id: String, value: PWMetadataMatch?)?
             defer { metadataTask = nil; persist() }

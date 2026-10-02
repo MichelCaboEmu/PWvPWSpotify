@@ -183,7 +183,8 @@ final class PWDownloadStore {
             }
         }
         PWLocalLibrary.shared.migrate(jobs)
-        Task { await PWLocalLibrary.shared.organizeLegacyFolders() }
+        let library = PWLocalLibrary.shared
+        library.organizationTask = Task { await library.organizeLegacyFolders() }
     }
     func changed() {
         do {
