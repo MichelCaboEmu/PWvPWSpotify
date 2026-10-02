@@ -456,10 +456,18 @@ final class PWDownloadStore {
         guard let j = jobs.firstIndex(where: { $0.id == jobID }), let i = jobs[j].items.firstIndex(where: { $0.track.id == trackID }) else { return }
         jobs[j].items[i].state = state; jobs[j].items[i].file = file; jobs[j].items[i].error = error; changed()
     }
+    private func fetchAudius(_ track: PWAudioTrack, trace: [String: Any], progress: @escaping @MainActor (String) -> Void) async throws -> URL {
+        try await PWMediaRetry.run(operation: { attempt in
+            try await PWAudius.shared.download(track, trace: trace.merging(["transfer_attempt": attempt]) { _, new in new }, progress: progress)
+        }, forbidden: { ($0 as? PWAudioHTTPError)?.status == 403 }, waiting: {
+            progress("Flux Audius refusé : nouvelle tentative dans 3 secondes…")
+            pwEvent("audius_403_retry_scheduled", 403, details: ["delay_seconds": 3, "next_attempt": 2])
+        })
+    }
     private func fetchWithFallback(_ track: PWAudioTrack, source: Int, trace: [String: Any], progress: @escaping @MainActor (String) -> Void) async throws -> URL {
         let file: URL
         if source == 3 {
-            file = try await PWAudius.shared.download(track, trace: trace, progress: progress)
+            file = try await fetchAudius(track, trace: trace, progress: progress)
         } else {
             do {
                 file = try await PWMediaRetry.run(operation: { attempt in
@@ -479,7 +487,7 @@ final class PWDownloadStore {
                 guard missingMatch || refusedMedia,
                       UserDefaults.standard.bool(forKey: "spotifyglass.download.audiusFallback") else { throw error }
                 pwEvent("audius_fallback_started", details: trace.merging(PWDownloadLog.error(error)) { _, new in new })
-                do { file = try await PWAudius.shared.download(track, trace: trace, progress: progress) }
+                do { file = try await fetchAudius(track, trace: trace, progress: progress) }
                 catch let fallback {
                     throw PWDownloadError(message: error.localizedDescription + "\nSecours Audius : " + fallback.localizedDescription,
                         pausesQueue: (fallback as? PWDownloadError)?.pausesQueue ?? false)
@@ -637,8 +645,7 @@ final class PWDownloadsBridge: NSObject, UIDocumentPickerDelegate {
         pwEvent("library_snapshot", library.catalog.entries.count, details: ["playlists": library.catalog.playlists.count,
             "metadata_status": library.metadataStatus, "metadata_active": library.metadataTask != nil,
             "metadata_errors": library.catalog.entries.values.filter { $0.metadataError != nil }.count,
-            "audius_fallback": UserDefaults.standard.bool(forKey: "spotifyglass.download.audiusFallback"),
-            "soundcloud_fallback": UserDefaults.standard.bool(forKey: "spotifyglass.download.audiusFallback")])
+            "audius_fallback": UserDefaults.standard.bool(forKey: "spotifyglass.download.audiusFallback")])
         for entry in library.catalog.entries.values.filter({ $0.metadataError != nil }).prefix(10) {
             pwEvent("metadata_error_snapshot", details: ["title": entry.track.title, "message": entry.metadataError ?? ""])
         }

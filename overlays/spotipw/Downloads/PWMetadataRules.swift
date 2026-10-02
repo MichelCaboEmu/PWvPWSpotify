@@ -10,6 +10,20 @@ enum PWMetadataRules {
         guard let url = URL(string: text), url.scheme == "https", url.host == "i.scdn.co", url.user == nil, url.password == nil else { return nil }
         return text
     }
+    static func bestArtwork(_ covers: [String: String]) -> String? {
+        func rank(_ key: String) -> Int {
+            let digits = key.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.max() ?? 0
+            if digits > 0 { return digits }
+            let key = key.lowercased()
+            if key.contains("xlarge") || key.contains("extra") { return 1000 }
+            if key.contains("large") { return 640 }
+            if key.contains("medium") { return 300 }
+            if key.contains("small") { return 64 }
+            return 0
+        }
+        return covers.sorted { rank($0.key) == rank($1.key) ? $0.key < $1.key : rank($0.key) > rank($1.key) }
+            .compactMap { artworkURL($0.value) }.first
+    }
     static func albumMatches(_ candidate: String?, _ expected: String?) -> Bool {
         guard let expected = expected, !expected.isEmpty else { return true }
         guard let candidate = candidate else { return false }

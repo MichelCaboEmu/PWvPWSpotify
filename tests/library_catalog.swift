@@ -45,6 +45,7 @@ import Foundation
         precondition(PWMetadataRules.appleMatch([wrong, right], track: one) == nil, "ambiguous album preserves artwork")
         precondition(PWMetadataRules.artworkURL("spotify:image:" + String(repeating: "a", count: 40)) == "https://i.scdn.co/image/" + String(repeating: "a", count: 40))
         precondition(PWMetadataRules.artworkURL("https://i.scdn.co.evil.example/x") == nil)
+        precondition(PWMetadataRules.bestArtwork(["64": "https://i.scdn.co/image/small", "640": "https://i.scdn.co/image/large"]) == "https://i.scdn.co/image/large")
         enum RetryFailure: Error { case forbidden, missing }
         var attempts: [Int] = [], waits = 0, fallback = 0
         let answer = try await PWMediaRetry.run(operation: { n in attempts.append(n); if n == 1 { throw RetryFailure.forbidden }; return "ok" }, forbidden: { ($0 as? RetryFailure) == .forbidden }, waiting: { waits += 1 }, sleep: {})

@@ -40,7 +40,7 @@ final class PWOfflinePlayerController: UIViewController {
             UIAction(title: title, attributes: .disabled) { _ in }
         }
         more.menu = UIMenu(children: [UIAction(title: "File d’attente", image: UIImage(systemName: "list.bullet")) { [weak self] _ in self?.showQueue() },
-            UIAction(title: "Partager le fichier", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
+            UIAction(title: "Partager le fichier", image: UIImage(systemName: "square.and.arrow.up")) { [weak self, weak more] _ in
                 guard let self = self, let entry = self.model.current else { return }
                 PWLocalLibraryController.share(entry, from: self, anchor: more)
             }] + disabled)

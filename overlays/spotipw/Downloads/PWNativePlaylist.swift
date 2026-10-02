@@ -84,7 +84,7 @@ struct PWNativePlaylist {
                   let duration = field(meta, "duration") as? Double,
                   duration.isFinite, duration > 0, duration <= 86400 else { report("native_item_unavailable", 2); return nil }
             let covers = field(meta, "albumCovers") as? [String: Any] ?? field(meta, "covers") as? [String: Any] ?? [:]
-            let cover = covers.sorted { $0.key > $1.key }.compactMap { uri($0.value) }.compactMap(PWMetadataRules.artworkURL).first
+            let cover = PWMetadataRules.bestArtwork(covers.compactMapValues { uri($0) })
             result.append(PWAudioTrack(id: id, title: title, artist: artist, duration: duration,
                 album: field(meta, "albumName") as? String, artworkURL: cover))
         }

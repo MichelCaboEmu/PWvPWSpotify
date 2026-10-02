@@ -2,7 +2,8 @@ import Foundation
 import AVFoundation
 import UIKit
 
-// One bounded, credential-free metadata session. No Spotify/YouTube account data.
+// Bounded metadata requests. Only the exact Spotify API origin receives its bearer;
+// public providers and all redirects are credential-free.
 final class PWMetadataHTTP: NSObject, URLSessionTaskDelegate {
     static let shared = PWMetadataHTTP()
     static func allowed(_ url: URL) -> Bool {
@@ -145,6 +146,7 @@ enum PWMetadata {
         var updated = entry
         if let match = match {
             updated.track.title = match.title; updated.track.artist = match.artist
+            updated.track.album = match.album ?? entry.track.album; updated.track.year = match.year ?? entry.track.year
             updated.album = match.album ?? entry.album; updated.year = match.year ?? entry.year; updated.metadataSource = match.source
         }
         NSFileCoordinator().coordinate(writingItemAt: location.file, options: .forReplacing, error: &coordination) { original in
@@ -168,6 +170,7 @@ extension PWLocalLibrary {
         let entries = allFiles.sorted { $0.track.title < $1.track.title }
         metadataTask = Task {
             var success = 0, failures = 0, unmatched = 0
+            var lastMatch: (id: String, value: PWMetadataMatch?)?
             defer { metadataTask = nil; persist() }
             for (index, entry) in entries.enumerated() {
                 if Task.isCancelled { metadataStatus = "Arrêté : \(success) mis à jour · \(failures) erreurs"; return }
@@ -176,7 +179,12 @@ extension PWLocalLibrary {
                     guard entry.exists() else { throw pwError("Fichier indisponible sur cet iPhone.") }
                     // ~20 searches/minute, keep within Apple's documented rate.
                     if index > 0 { try await Task.sleep(nanoseconds: 3_200_000_000) }
-                    let match = try await PWMetadata.lookup(entry.track)
+                    let match: PWMetadataMatch?
+                    if let cached = lastMatch, cached.id == entry.track.id { match = cached.value }
+                    else {
+                        let track = entry.track.enriched(with: catalog.entries[entry.track.id]?.track ?? entry.track)
+                        match = try await PWMetadata.lookup(track); lastMatch = (track.id, match)
+                    }
                     let updated = try await PWMetadata.update(entry, match: match)
                     replace(updated); success += 1
                     if match == nil { unmatched += 1 }

@@ -30,6 +30,7 @@ final class PWLocalLibrary {
     static let shared = PWLocalLibrary()
     private(set) var catalog = PWLibraryCatalog()
     private var availability: [String: (Date, Bool)] = [:]
+    private var legacyExports: [PWLocalEntry] = []
     var metadataStatus = "Pochette, titre, artiste, album et année si disponibles"
     var metadataTask: Task<Void, Never>?
     private var url: URL {
@@ -92,7 +93,8 @@ final class PWLocalLibrary {
         // Copy first and persist every new path. Legacy files are deliberately
         // retained until the migration of every referenced playlist succeeds.
         let lists = Array(catalog.playlists.values)
-        let old = allFiles.filter { $0.directory.hasPrefix("Playlist-") }
+        let old = allFiles.filter { $0.directory.hasPrefix("Playlist-") } + legacyExports
+        legacyExports = []
         var failed = false
         for list in lists {
             for id in list.trackIDs {
@@ -108,9 +110,9 @@ final class PWLocalLibrary {
         // persisted. Never remove another file in an exported directory.
         guard !failed, persist() else { return }
         let referenced = Set(allFiles.compactMap { try? $0.location().file.standardizedFileURL.path })
-        var removed = 0
+        var removed = 0, handled = Set<String>()
         for entry in old {
-            guard let location = try? entry.location(), !referenced.contains(location.file.standardizedFileURL.path) else { continue }
+            guard let location = try? entry.location(), !referenced.contains(location.file.standardizedFileURL.path), handled.insert(location.file.standardizedFileURL.path).inserted else { continue }
             let scoped = location.root.startAccessingSecurityScopedResource()
             defer { if scoped { location.root.stopAccessingSecurityScopedResource() } }
             var error: NSError?
@@ -131,9 +133,12 @@ final class PWLocalLibrary {
             // Never mark an old incomplete queue as a complete playlist.
             catalog.remember(uri: job.uri, title: job.title, tracks: job.items.map(\.track), complete: false)
             for item in job.items where item.state == "done" {
-                guard catalog.entries[item.track.id] == nil, let filename = item.file else { continue }
+                guard let filename = item.file else { continue }
                 let entry = PWLocalEntry(track: item.track, folder: job.folder, directory: "Playlist-" + job.id, filename: filename)
-                if entry.exists() { catalog.entries[item.track.id] = entry; imported += 1 }
+                if entry.exists() {
+                    legacyExports.append(entry)
+                    if catalog.entries[item.track.id] == nil { catalog.entries[item.track.id] = entry; imported += 1 }
+                }
             }
         }
         if !jobs.isEmpty { persist() }

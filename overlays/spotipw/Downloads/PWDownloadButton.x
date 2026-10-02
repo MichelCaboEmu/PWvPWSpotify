@@ -25,7 +25,8 @@ static id modelFor(UIView *view) {
     for(UIResponder *r=view;r;r=r.nextResponder) {
         if (![r isKindOfClass:UIViewController.class]) continue;
         if (![NSStringFromClass(r.class) containsString:@"FreeTierPlaylist"]) continue;
-        return objectGetter(objectGetter(r,@"headerController"),@"defaultHeaderViewModel");
+        id model=objectGetter(objectGetter(r,@"headerController"),@"defaultHeaderViewModel");
+        if(model)return model;
     }
     return nil;
 }
@@ -105,7 +106,8 @@ void PWPrepareNativeDownloads(UIView *row) {
 void PWRefreshMetadataSession(void) { [PWDownloadsBridge setSpotifyAuthorization:SGKaraokeSpotifyAuthorization()]; }
 static NSDictionary *PWPlayingTrackInfo(void) {
     SPTPlayerState *state=SGPlayerState(); SPTPlayerTrack *track=state.track;
-    NSString *uri=track.URI.absoluteString;
+    id link=track.URI;
+    NSString *uri=[link isKindOfClass:NSURL.class]?[(NSURL *)link absoluteString]:([link isKindOfClass:NSString.class]?link:nil);
     if(![uri hasPrefix:@"spotify:track:"] || !track.trackTitle.length || !track.artistName.length)return nil;
     NSDictionary *metadata=track.metadata;
     NSString *art=metadata[@"image_xlarge_url"] ?: metadata[@"image_large_url"] ?: metadata[@"image_url"];
