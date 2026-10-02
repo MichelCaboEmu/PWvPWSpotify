@@ -76,6 +76,7 @@ enum DownloadTests {
         check(PWNativePlaylist.menuTracks(header: header, requestedURI: "spotify:playlist:AAAAAAAAAAAAAAAAAAAAAA").isEmpty, "row menu rejects a different playlist")
         header.entityModel.entityURL = URL(string: "spotify:collection:tracks")!
         check(PWNativePlaylist.menuTracks(header: header, requestedURI: "spotify:collection:tracks").count == 1, "liked-songs row menu")
+        header.entityModel.entityURL = URL(string: playlistURI)!
         let track = PWAudioTrack(id: id, title: "La vérité", artist: "Élodie", duration: 200)
         let exact = PWAudioCandidate(id: "aB1_cD2-eF3", title: "La Verite", artist: "Elodie", duration: 202)
         check(PWDownloadRules.score(exact, for: track) != nil, "accent-insensitive match")
