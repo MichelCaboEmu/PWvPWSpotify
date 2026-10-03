@@ -223,29 +223,10 @@ static void PWApplyTrackRow(UIView *cell) {
     [PWDownloadsBridge installTrackMenu:(UIViewController *)self];
 }
 %end
-// Verified in the 9.1.78 executable and Redesigned/Player/PlayerScroll.x.
-%hook _TtC21NowPlaying_ScrollImpl23NPVScrollViewController
-- (void)viewDidAppear:(BOOL)animated {
-    %orig;
-    [PWDownloadsBridge captureNativePlayerAppearance:(UIViewController *)self];
-    __weak UIViewController *controller=(UIViewController *)self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if(controller.viewIfLoaded.window)[PWDownloadsBridge captureNativePlayerAppearance:controller];
-    });
-}
-- (void)viewDidLayoutSubviews {
-    %orig;
-    [PWDownloadsBridge captureNativePlayerAppearance:(UIViewController *)self];
-}
-%end
 %ctor {
     %init;
     [NSUserDefaults.standardUserDefaults registerDefaults:@{@"spotifyglass.download.autoOffline":@YES,@"spotifyglass.download.audiusFallback":@YES}];
     dispatch_async(dispatch_get_main_queue(), ^{[PWDownloadsBridge startOfflineMonitor];});
-    [NSNotificationCenter.defaultCenter addObserverForName:@"PWOfflinePlaybackStarting" object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
-        id<SPTPlayer> player=SGKaraokePlayer();
-        if(player && !SGPlayerState().isPaused)[player pause:nil];
-    }];
     [NSNotificationCenter.defaultCenter addObserverForName:@"PWDownloadDiagnostic" object:nil queue:nil usingBlock:^(NSNotification *note){
         NSString *event=note.userInfo[@"event"];
         if([event isKindOfClass:NSString.class]) {

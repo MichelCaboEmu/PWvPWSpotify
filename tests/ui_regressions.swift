@@ -37,6 +37,26 @@ final class UIRegressionApp: UIResponder, UIApplicationDelegate {
             check(populated.bounds.height == 96, "real header content preserved without inflation")
             check(secondButton.frame.minY == 40, "download follows content with eight-point spacing")
         }
+        let emptyControl = UIControl(frame: CGRect(x: 0, y: 0, width: 393, height: 900))
+        let container = UIView(frame: emptyControl.frame); container.addSubview(emptyControl)
+        let emptyHeader = PWTrackMenuHeader(prior: container, button: UIButton(type: .system), width: 393)
+        check(emptyHeader.bounds.height == 56, "empty controls do not count as header content")
+        let root = UIView(frame: CGRect(x: 0, y: 0, width: 393, height: 800))
+        let title = UILabel(frame: CGRect(x: 16, y: 20, width: 280, height: 30)); title.text = "Track header"
+        root.addSubview(title)
+        let table = UITableView(frame: .zero, style: .plain); table.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(table)
+        let oldTop = table.topAnchor.constraint(equalTo: root.topAnchor, constant: 500)
+        NSLayoutConstraint.activate([oldTop, table.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            table.trailingAnchor.constraint(equalTo: root.trailingAnchor), table.heightAnchor.constraint(equalToConstant: 240)])
+        table.tableHeaderView = emptyHeader; table.contentInset.top = 300; table.contentOffset.y = -300
+        root.layoutIfNeeded()
+        for _ in 0..<50 {
+            _ = PWTrackMenuLayout.compact(table: table, in: root); root.layoutIfNeeded()
+            check(abs(table.frame.minY - 58) < 1, "table follows native title, without outer gap")
+            check(table.contentInset.top == 0 && table.contentOffset.y >= 0, "no inner scroll spacer")
+            check(!oldTop.isActive, "obsolete native top constraint cannot restore the gap")
+        }
         let label = UILabel(); label.font = .systemFont(ofSize: 14)
         let original = NSAttributedString(string: "Damso", attributes: [.font: label.font as Any, .foregroundColor: UIColor.gray])
         label.attributedText = original

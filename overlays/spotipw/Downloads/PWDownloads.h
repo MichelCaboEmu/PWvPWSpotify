@@ -2,6 +2,7 @@
 
 #define PWKeyDownloadSource @"spotifyglass.download.source"
 BOOL PWDownloadsEnabled(void);
+BOOL PWNativeLocalPlayback(void);
 // Main thread. Uses the displayed header's verified model, never the current player context.
 UIView *PWDownloadControl(UIView *root, id model);
 void PWPrepareNativeDownloads(UIView *row);
@@ -15,10 +16,10 @@ void PWRefreshMetadataSession(void);
 + (void)metadataFrom:(UIViewController *)controller;
 + (NSString *)metadataSummary;
 + (void)startOfflineMonitor;
-+ (void)stopOfflinePlayback;
++ (void)configureNativePlayback:(BOOL (^)(NSDictionary *request))handler;
++ (void)nativePlaybackState:(NSDictionary *)state;
 + (NSDictionary *)trackInfoFromModel:(id)model uri:(NSString *)uri title:(NSString *)title subtitle:(NSString *)subtitle;
 + (id)playlistModelFromController:(UIViewController *)controller;
-+ (void)captureNativePlayerAppearance:(UIViewController *)controller;
 + (void)decorateDownloadSubtitle:(UIView *)subtitle downloaded:(BOOL)downloaded;
 + (void)refreshTrackMenuHeader:(UITableView *)table;
 + (void)selectMenuTrack:(NSDictionary *)info;

@@ -81,6 +81,7 @@ final class PWLocalLibrary {
             catalog.playlists[uri]?.files?[entry.track.id] = entry
         }
         catalog.entries[entry.track.id] = entry; persist()
+        PWNativePlayback.importDownloaded(entry)
     }
     var allFiles: [PWLocalEntry] {
         var result: [PWLocalEntry] = [], seen = Set<String>()
@@ -152,166 +153,6 @@ final class PWLocalLibrary {
 }
 
 @MainActor
-final class PWOfflinePlayer: NSObject {
-    static let shared = PWOfflinePlayer()
-    private(set) var player: AVPlayer?
-    private(set) var queue: [PWLocalEntry] = []
-    private var orderedQueue: [PWLocalEntry] = []
-    private(set) var repeatMode = 0
-    private(set) var shuffled = false
-    private(set) var artwork: UIImage?
-    private var artworkTask: Task<Void, Never>?
-    private(set) var index = 0
-    var current: PWLocalEntry? { queue.indices.contains(index) ? queue[index] : nil }
-    var elapsed: Double { let time = player?.currentTime().seconds ?? 0; return time.isFinite ? max(0, time) : 0 }
-    var duration: Double { let time = player?.currentItem?.duration.seconds ?? 0; return time.isFinite && time > 0 ? time : current?.track.duration ?? 0 }
-    private var access: URL?
-    private var completion: NSObjectProtocol?
-    private var failure: NSObjectProtocol?
-    private var nowPlayingSession: MPNowPlayingSession?
-    private var remoteTargets: [(MPRemoteCommand, Any)] = []
-    var title: String { queue.indices.contains(index) ? queue[index].track.title : "Aucune lecture" }
-    var playing: Bool { (player?.rate ?? 0) > 0 }
-    func play(_ entries: [PWLocalEntry], at position: Int) throws {
-        guard entries.indices.contains(position) else { return }
-        stop()
-        queue = entries; orderedQueue = entries; index = position
-        try begin()
-    }
-    private func begin() throws {
-        guard queue.indices.contains(index) else { stop(); return }
-        releaseItem()
-        let queued = queue[index]
-        let entry = PWLocalLibrary.shared.available(queued.track.id, playlist: queued.playlistURI) ?? PWLocalLibrary.shared.available(queued.track.id) ?? queued
-        queue[index] = entry
-        let location = try entry.location()
-        let scoped = location.root.startAccessingSecurityScopedResource()
-        if scoped { access = location.root }
-        guard entry.exists() else { releaseItem(); throw pwError("Ce fichier n’est plus disponible sur cet iPhone.") }
-        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-        try AVAudioSession.sharedInstance().setActive(true)
-        // Existing shared player hook handles pause without guessing private selectors.
-        NotificationCenter.default.post(name: Notification.Name("PWOfflinePlaybackStarting"), object: nil)
-        let item = AVPlayerItem(url: location.file)
-        player = AVPlayer(playerItem: item)
-        completion = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.finished() }
-        }
-        failure = NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] note in
-            let message = (note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)?.localizedDescription ?? "Lecture locale interrompue."
-            Task { @MainActor in pwEvent("offline_playback_failed", details: ["message": message]); self?.stop() }
-        }
-        if let player = player {
-            nowPlayingSession = MPNowPlayingSession(players: [player])
-            installCommands()
-            nowPlayingSession?.becomeActiveIfPossible { active in
-                pwEvent("offline_session_active", active ? 1 : 0)
-            }
-        }
-        artworkTask = Task { [weak self, weak item] in
-            guard let item = item, let tags = try? await item.asset.load(.commonMetadata) else { return }
-            var image: UIImage?
-            for tag in tags where tag.commonKey == .commonKeyArtwork {
-                if let bytes = try? await tag.load(.dataValue), let found = UIImage(data: bytes) { image = found; break }
-            }
-            guard !Task.isCancelled, self?.player?.currentItem === item else { return }
-            self?.artwork = image; self?.nowPlaying(); NotificationCenter.default.post(name: pwChanged, object: nil)
-        }
-        player?.play(); nowPlaying(); NotificationCenter.default.post(name: pwChanged, object: nil)
-    }
-    private func installCommands() {
-        guard let center = nowPlayingSession?.remoteCommandCenter else { return }
-        for (command, action) in [(center.playCommand, 0), (center.pauseCommand, 1),
-                                  (center.togglePlayPauseCommand, 2), (center.nextTrackCommand, 3), (center.previousTrackCommand, 4)] {
-            let target = command.addTarget { [weak self] _ in
-                Task { @MainActor in
-                    guard let self = self else { return }
-                    if action == 0 { self.player?.play(); self.nowPlaying() }
-                    else if action == 1 { self.player?.pause(); self.nowPlaying() }
-                    else if action == 2 { self.toggle() }
-                    else if action == 3 { self.next() }
-                    else { self.previous() }
-                }
-                return .success
-            }
-            remoteTargets.append((command, target))
-        }
-        let seek = center.changePlaybackPositionCommand
-        let target = seek.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            Task { @MainActor in self?.seek(event.positionTime) }; return .success
-        }
-        remoteTargets.append((seek, target))
-    }
-    private func nowPlaying() {
-        guard queue.indices.contains(index), let player = player else { return }
-        let entry = queue[index]
-        var info: [String: Any] = [MPMediaItemPropertyTitle: entry.track.title,
-            MPMediaItemPropertyArtist: entry.track.artist, MPMediaItemPropertyAlbumTitle: entry.album ?? "",
-            MPMediaItemPropertyPlaybackDuration: duration,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: max(0, player.currentTime().seconds.isFinite ? player.currentTime().seconds : 0),
-            MPNowPlayingInfoPropertyPlaybackRate: player.rate]
-        if let image = artwork { info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image } }
-        nowPlayingSession?.nowPlayingInfoCenter.nowPlayingInfo = info
-    }
-    func toggle() { if playing { player?.pause() } else { player?.play() }; nowPlaying(); NotificationCenter.default.post(name: pwChanged, object: nil) }
-    func seek(_ seconds: Double) {
-        guard seconds.isFinite else { return }
-        player?.seek(to: CMTime(seconds: min(duration, max(0, seconds)), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in Task { @MainActor in self?.nowPlaying() } }
-    }
-    func cycleRepeat() { repeatMode = (repeatMode + 1) % 3; NotificationCenter.default.post(name: pwChanged, object: nil) }
-    func toggleShuffle() {
-        guard let current = current else { return }
-        shuffled.toggle()
-        if shuffled { queue = [current] + queue.enumerated().filter { $0.offset != index }.map(\.element).shuffled(); index = 0 }
-        else { queue = orderedQueue; index = queue.firstIndex { $0.track.id == current.track.id } ?? 0 }
-        NotificationCenter.default.post(name: pwChanged, object: nil)
-    }
-    func jump(_ position: Int) {
-        guard queue.indices.contains(position) else { return }
-        index = position
-        do { try begin() } catch { stop(); pwEvent("offline_playback_failed", details: PWDownloadLog.error(error)) }
-    }
-    private func finished() {
-        if repeatMode == 2 { seek(0); player?.play(); nowPlaying() }
-        else { next() }
-    }
-    func next() {
-        if index + 1 < queue.count { jump(index + 1) }
-        else if repeatMode > 0 { jump(0) }
-        else { player?.pause(); nowPlaying(); NotificationCenter.default.post(name: pwChanged, object: nil) }
-    }
-    func previous() { if elapsed > 3 { seek(0) } else { jump(max(0, index - 1)) } }
-    func remove(_ position: Int) {
-        guard queue.indices.contains(position), position != index else { return }
-        let removed = queue.remove(at: position)
-        orderedQueue.removeAll { $0.track.id == removed.track.id }
-        if position < index { index -= 1 }
-        NotificationCenter.default.post(name: pwChanged, object: nil)
-    }
-    func move(_ source: Int, to destination: Int) {
-        guard queue.indices.contains(source), queue.indices.contains(destination), let current = current else { return }
-        let item = queue.remove(at: source); queue.insert(item, at: destination)
-        index = queue.firstIndex { $0.track.id == current.track.id } ?? 0
-        if !shuffled { orderedQueue = queue }
-        NotificationCenter.default.post(name: pwChanged, object: nil)
-    }
-    private func releaseItem() {
-        artworkTask?.cancel(); artworkTask = nil; artwork = nil
-        player?.pause(); player = nil
-        for (command, target) in remoteTargets { command.removeTarget(target) }; remoteTargets = []
-        nowPlayingSession?.nowPlayingInfoCenter.nowPlayingInfo = nil; nowPlayingSession = nil
-        for observer in [completion, failure].compactMap({ $0 }) { NotificationCenter.default.removeObserver(observer) }
-        completion = nil; failure = nil
-        if let access = access { access.stopAccessingSecurityScopedResource() }; access = nil
-    }
-    func stop() {
-        releaseItem(); queue = []; orderedQueue = []; shuffled = false; repeatMode = 0
-        NotificationCenter.default.post(name: pwChanged, object: nil)
-    }
-}
-
-@MainActor
 final class PWLocalLibraryController: UITableViewController {
     var playlist: PWLocalPlaylist?
     private var entries: [PWLocalEntry] = []
@@ -322,6 +163,7 @@ final class PWLocalLibraryController: UITableViewController {
         title = playlist?.title ?? "Bibliothèque hors ligne"
         tableView.rowHeight = UITableView.automaticDimension; tableView.estimatedRowHeight = 65
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(close))
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Fichiers locaux Spotify", style: .plain, target: self, action: #selector(openNativeFiles))
         observer = NotificationCenter.default.addObserver(forName: pwChanged, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.reload() } }
         reload()
     }
@@ -329,23 +171,12 @@ final class PWLocalLibraryController: UITableViewController {
     private func reload() {
         lists = PWLocalLibrary.shared.playlists
         entries = playlist?.trackIDs.compactMap { PWLocalLibrary.shared.available($0, playlist: playlist?.uri) ?? PWLocalLibrary.shared.available($0) } ?? []
-        let player = PWOfflinePlayer.shared
-        navigationItem.prompt = player.player == nil ? nil : player.title
-        toolbarItems = [UIBarButtonItem(title: player.title, style: .plain, target: self, action: #selector(openPlayer)),
-            UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
-            UIBarButtonItem(image: UIImage(systemName: player.playing ? "pause.fill" : "play.fill"), style: .plain, target: self, action: #selector(toggle))]
-        navigationController?.setToolbarHidden(player.player == nil, animated: false)
         tableView.reloadData()
     }
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        if navigationController?.isBeingDismissed == true || isBeingDismissed { PWOfflinePlayer.shared.stop() }
+    @objc private func close() { dismiss(animated: true) }
+    @objc private func openNativeFiles() {
+        dismiss(animated: true) { _ = PWNativePlayback.handler?(["operation":"open_files"]) }
     }
-    @objc private func close() { PWOfflinePlayer.shared.stop(); dismiss(animated: true) }
-    @objc private func openPlayer() { PWOfflinePlayerController.show(from: self) }
-    @objc private func toggle() { PWOfflinePlayer.shared.toggle() }
-    @objc private func nextTrack() { PWOfflinePlayer.shared.next() }
-    @objc private func previous() { PWOfflinePlayer.shared.previous() }
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { playlist == nil ? lists.count : entries.count }
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         playlist == nil ? "Seules les playlists contenant des fichiers disponibles sur cet iPhone sont affichées. Touche une playlist pour écouter ses titres hors connexion." : "Appui long sur un titre pour partager le fichier."
@@ -372,8 +203,7 @@ final class PWLocalLibraryController: UITableViewController {
             let page = PWLocalLibraryController(style: .insetGrouped); page.playlist = lists[indexPath.row]
             navigationController?.pushViewController(page, animated: true)
         } else {
-            do { try PWOfflinePlayer.shared.play(entries, at: indexPath.row); reload(); PWOfflinePlayerController.show(from: self) }
-            catch { Self.notice(error.localizedDescription, from: self) }
+            PWNativePlayback.play(entries, at: indexPath.row, title: playlist?.title ?? "Titres téléchargés", from: self)
         }
     }
     override func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {

@@ -1,55 +1,62 @@
-# Native player visual audit — Spotify 9.1.78 (917802214)
+# Native offline playback — Spotify 9.1.78 (917802214)
 
-Inspected the complete IPA from build run 37099394943 (commit e4f32dc),
-not the expired initial Catbox upload. Executable size: 227,428,064 bytes.
+The reconstructed player, AVPlayer queue and captured-layout approximation have
+been removed. The tweak hands a finite list of local tracks to Spotify's own
+SPTEsperantoPlayer. Its native now-playing screen, queue, transport commands,
+shuffle/repeat, remote controls and playback lifetime remain Spotify-owned.
 
-## Verified resources and components
+## Verified integration
 
-- `SpotifyShared.framework/Fonts.bundle`: SpotifyMixUI-Regular, SpotifyMixUI-Bold,
-  SpotifyMixUITitleVariable and spoticon. Resources are loaded from the installed
-  application; no third-party font binaries are copied into this repository.
-- spoticon cmap: downloaded16 f32c, download24 f399, play24 f1c8, pause24 f1d3,
-  skip-back24 f1d6, skip-forward24 f1d7, shuffle24 f1d5, repeat24 f1d4,
-  repeat-once24 f201, queue24 f3a3, chevron-down24 f394, more24 f1cc.
-- `NowPlaying_ScrollImpl.NPVScrollViewController`: viewDidAppear: and
-  viewDidLayoutSubviews verified in executable metadata and existing PlayerScroll.x.
-- HeaderElementsUnit, PlaybackControlsElementsUnit and identifiers in
-  Native/Player/PlayerDeclutter.x, Redesigned/Player/PlayerHeader.x,
-  PlayerFooter.x and PlayerLyrics.x describe the actual hierarchy and row order.
+The complete executable from IPA build run 37099394943 was inspected (227,428,064
+bytes). Objective-C method encodings and relevant dictionary keys were verified:
 
-PWNativePlayerAppearance measures the displayed online player read-only. It stores
-rectangles and font names/sizes, keyed by window dimensions, safe area, text size
-and redesign setting. It does not store track text, images or screenshots.
-Open the online full-screen player once in the desired appearance to populate the
-profile. Missing/invalid measurements retain the fallback layout; a different
-orientation, text size or appearance needs its own measurement.
+- LocalFiles_CoreImpl.LocalFilesAPIService: provideLocalFilesSettingsModel and
+  _injectDependenciesWithProvider:. Use the app-created model after injection.
+- LocalFilesSettingsModelImpl: enableDocumentsFolderAccess (`v16@0:8`). This calls
+  the Documents source mutation; it does not fake media-library permission.
+- SPTEsperantoPlayer: playContext:options: (`@32@0:8@16@24`).
+- SPTPlayerContext initWithDictionary: reads uri, pages, metadata (0x1097c3458).
+- SPTPlayerContextPage initWithDictionary: reads tracks and next_page_url
+  (0x1097c3d68). The request provides one complete page and no continuation.
+- SPTPlayerTrack initWithDictionary: reads uri, uid, provider, metadata (0x1097c7134).
+- SPTPlayOptions initWithDictionary: reads skip_to, always_play_something,
+  initially_paused (0x1097c1fc8). SPTSkipToTrack reads track_index (0x1097c7c7c).
+- spotify:local-files and spotify:now-playing are bundled navigation routes,
+  dispatched by the existing SGOpenSpotifyURI integration.
 
-## Scope and remaining limits
+Local URI format is documented by Spotify:
+https://developer.spotify.com/documentation/web-api/concepts/playlists
 
-The offline screen uses the bundled fonts/glyphs and measured frames where present.
-It still uses the local AVPlayer and local queue. It does not instantiate Spotify's
-private player dependency graph or fake its playback state. The queue and options
-panel remain local UIKit implementations. Background colors are derived locally
-from artwork. This is not a claim of pixel-perfect identity or a full native-engine
-adapter; on-device visual verification remains necessary.
+Documents import is the standard iOS local-files path:
+https://support.spotify.com/be-fr/article/local-files/
 
-| Capability | Offline behavior |
-| --- | --- |
-| Play, pause, seek, previous/next | Local audio |
-| Shuffle, repeat/repeat-one | Local queue |
-| Open, reorder, remove from queue | Local queue |
-| Lock-screen/system playback controls | Existing local integration |
-| Audio output selection | System route picker; available routes depend on device |
-| Share downloaded file | Available |
-| Lyrics, artist, album, radio navigation | Disabled in local player |
+The importer copies into the Spotify Documents root, retaining the original
+playlist exports and chosen external directories. It reads the copied file's tags
+and actual audio duration. Missing title tags are written on the import copy.
+Copies have readable filenames and a persistent private manifest prevents repeated
+imports. Imports are serialized to avoid filename and metadata-write races.
 
-## Menu and row regressions
+A request returning an object is not treated as completed playback: the native
+state observer must report the selected local URI playing. On timeout the error
+remains visible. There is no AVPlayer or reconstructed player fallback. Native
+indexing timing and actual playback still require validation on a physical iPhone;
+a compile/simulator test cannot prove the Spotify scanner has indexed a file.
 
-PWTrackMenuHeader disables wrapper subview autoresizing and measures real prior
-header content rather than recursively counting its growing frame. Empty large
-spacers collapse. Download row height, icon origin and label font/spacing are read
-from a visible native action row.
+The app's native local-track restrictions govern unsupported menu actions (local
+tracks carry no online artist/album URI). Spoti.PW's additional lyrics footer
+button is explicitly disabled for native local playback. Existing native controls
+and queue are not replaced or relaid out.
 
-The playlist indicator is an attributed-text prefix on the artist subtitle, with
-an explicit marker removed on cell reuse or loss of downloaded state. The iOS
-simulator test checks repeated resizing and indicator reuse with real UIKit.
+## Context-menu spacing
+
+The prior header-only test missed two independent sources of blank space: the
+outer table positioning and scroll insets. PWTrackMenuLayout is restricted to a
+track menu containing our download header. It aligns the native content region
+below the actual visible title/artwork, replacing only its top-position constraint,
+clears the top scroll inset and keeps the native data source and index paths.
+Empty UIControls no longer count as meaningful prior-header content. Native row
+font/icon alignment and the green subtitle indicator are retained.
+
+UIKit regression tests exercise a 500-point outer gap, a 300-point scroll inset,
+empty controls, repeated layout and subtitle reuse. On-device appearance remains
+a required practical confirmation.

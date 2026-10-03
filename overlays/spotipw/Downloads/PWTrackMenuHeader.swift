@@ -24,7 +24,7 @@ final class PWTrackMenuHeader: UIView {
             guard !view.isHidden, view.alpha > 0.01 else { return }
             let label = (view as? UILabel)?.text?.isEmpty == false
             let picture = (view as? UIImageView)?.image != nil && view.bounds.height <= 160
-            if label || picture || view is UIControl {
+            if label || picture {
                 let rect = prior.convert(view.bounds, from: view)
                 if rect.height > 0 { bottom = max(bottom, rect.maxY) }
             } else if !(view is UIVisualEffectView) { view.subviews.forEach(visit) }

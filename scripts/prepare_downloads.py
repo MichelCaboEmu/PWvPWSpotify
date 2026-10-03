@@ -171,3 +171,10 @@ static void applyToolbar(UIView *headerRoot) {''')
            '        block.frame = CGRectMake(0, 0, width, [SGSpeedPitchView heightOpen:sg_open]);\n'
            '        [PWDownloadsBridge refreshTrackMenuHeader:table];\n        return;\n    }\n'
            '    if (placed != block || fabs(block.frame.size.width - width) > 0.5) {')
+
+    # Local playback goes through Spotify itself; only the unavailable lyrics
+    # action needs an explicit guard in the redesigned footer.
+    footer = source / 'Redesigned/Player/PlayerFooter.x'
+    change(footer, '#import "Player.h"', '#import "Player.h"\n#import "Shared/Downloads/PWDownloads.h"')
+    change(footer, 'BOOL enabled = SGRPlayerLyricsAvailable() || SGRPlayerLyricsOpen(), open = SGRPlayerLyricsOpen();',
+           'BOOL local = PWNativeLocalPlayback();\n    BOOL enabled = !local && (SGRPlayerLyricsAvailable() || SGRPlayerLyricsOpen()), open = !local && SGRPlayerLyricsOpen();')

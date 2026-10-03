@@ -50,6 +50,10 @@ jobs:
         run: |
           xcrun swiftc overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWLibraryCatalog.swift overlays/spotipw/Downloads/PWFolderIndex.swift overlays/spotipw/Downloads/PWMetadataRules.swift overlays/spotipw/Downloads/PWMediaRetry.swift overlays/spotipw/Downloads/PWAudiusPolicy.swift tests/library_catalog.swift -o /tmp/pw-library-tests
           /tmp/pw-library-tests
+      - name: Test native local URI identity and finite Spotify queue payload
+        run: |
+          xcrun swiftc overlays/spotipw/Downloads/PWNativeLocalIdentity.swift tests/native_local_identity.swift -o /tmp/pw-native-local-tests
+          /tmp/pw-native-local-tests
       - name: Test audio transfer, progress, timeout and cancellation
         run: |
           xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos13.0" overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWYouTubeAccess.swift overlays/spotipw/Downloads/PWAudioTransfer.swift tests/audio_transfer.swift -o /tmp/pw-transfer-tests

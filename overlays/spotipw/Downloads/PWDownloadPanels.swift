@@ -34,7 +34,6 @@ extension PWDownloadsBridge {
         panel(PWMetadataController(style: .insetGrouped), from: presenter)
     }
     @objc static func startOfflineMonitor() { PWOfflineStartup.shared.start() }
-    @objc static func stopOfflinePlayback() { PWOfflinePlayer.shared.stop() }
     // FTPViewController owns playlistViewModel; the header controller is a sibling,
     // not an ancestor of a track cell. Field verified in 9.1.78 Swift metadata.
     @objc(playlistModelFromController:)
@@ -82,10 +81,7 @@ extension PWDownloadsBridge {
     }
     private static var menuSelectionKey: UInt8 = 0
     private static var menuButtonKey: UInt8 = 0
-    @objc(captureNativePlayerAppearance:)
-    static func captureNativePlayerAppearance(_ controller: UIViewController) {
-        PWNativePlayerAppearance.capture(controller)
-    }
+    private static var menuLayoutLoggedKey: UInt8 = 0
     @objc(decorateDownloadSubtitle:downloaded:)
     static func decorateDownloadSubtitle(_ root: UIView?, downloaded: Bool) {
         guard let root = root else { return }
@@ -113,7 +109,9 @@ extension PWDownloadsBridge {
             return view.subviews.compactMap { table($0, depth + 1) }.first
         }
         guard let rows = table(menu.view), rows.bounds.width > 0 else { return }
-        if let button = objc_getAssociatedObject(menu, &menuButtonKey) as? UIButton, button.isDescendant(of: rows) { refreshTrackMenuHeader(rows); return }
+        if let button = objc_getAssociatedObject(menu, &menuButtonKey) as? UIButton, button.isDescendant(of: rows) {
+            refreshTrackMenuHeader(rows); _ = PWTrackMenuLayout.compact(table: rows, in: menu.view); return
+        }
         let button = UIButton(type: .system)
         button.frame = CGRect(x: 0, y: 0, width: rows.bounds.width, height: 58)
         button.overrideUserInterfaceStyle = .dark
@@ -133,7 +131,18 @@ extension PWDownloadsBridge {
         let wrapper = PWTrackMenuHeader(prior: rows.tableHeaderView, button: button, width: rows.bounds.width)
         rows.tableHeaderView = wrapper
         objc_setAssociatedObject(menu, &menuButtonKey, button, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        _ = PWTrackMenuLayout.compact(table: rows, in: menu.view)
         rows.invalidateIntrinsicContentSize()
+        if objc_getAssociatedObject(menu, &menuLayoutLoggedKey) == nil {
+            objc_setAssociatedObject(menu, &menuLayoutLoggedKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            DispatchQueue.main.async { [weak menu, weak rows] in
+                guard let menu = menu, let rows = rows else { return }
+                let rect = menu.view.convert(rows.bounds, from: rows)
+                pwEvent("track_menu_geometry", details: ["table_y":rect.minY, "table_height":rect.height,
+                    "header_height":rows.tableHeaderView?.bounds.height ?? 0, "inset_top":rows.adjustedContentInset.top,
+                    "offset_y":rows.contentOffset.y, "root_height":menu.view.bounds.height])
+            }
+        }
     }
     @objc(refreshTrackMenuHeader:)
     static func refreshTrackMenuHeader(_ table: UITableView) {
@@ -145,8 +154,7 @@ extension PWDownloadsBridge {
         alert.overrideUserInterfaceStyle = .dark
         if let entry = PWLocalLibrary.shared.available(track.id) {
             alert.addAction(UIAlertAction(title: "Écouter le fichier téléchargé", style: .default) { _ in
-                do { try PWOfflinePlayer.shared.play([entry], at: 0); library(from: presenter) }
-                catch { PWLocalLibraryController.notice(error.localizedDescription, from: presenter) }
+                PWNativePlayback.play([entry], at: 0, title: destination?.title ?? "Titre téléchargé", from: presenter)
             })
             alert.addAction(UIAlertAction(title: "Partager le fichier", style: .default) { _ in PWLocalLibraryController.share(entry, from: presenter, anchor: presenter.view) })
         }
