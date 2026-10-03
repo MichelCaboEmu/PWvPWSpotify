@@ -37,7 +37,7 @@ enum PWDownloadedIndicator {
     static func apply(to label: UILabel, downloaded: Bool) {
         let current = label.attributedText ?? NSAttributedString(string: label.text ?? "", attributes: [.font: label.font as Any, .foregroundColor: label.textColor as Any])
         var marked = NSRange(location: 0, length: 0)
-        let present = current.length > 0 && current.attribute(marker, at: 0, effectiveRange: &marked) != nil
+        let present = current.length > 0 && current.attribute(marker, at: 0, longestEffectiveRange: &marked, in: NSRange(location: 0, length: current.length)) != nil
         if present == downloaded { return }
         let text = NSMutableAttributedString(attributedString: current)
         if present { text.deleteCharacters(in: marked) }
