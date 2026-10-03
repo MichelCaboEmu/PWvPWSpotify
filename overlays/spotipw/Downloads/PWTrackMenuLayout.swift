@@ -55,6 +55,11 @@ enum PWTrackMenuLayout {
         } else if abs((state.top?.constant ?? 0) - edge - 8) > 0.5 {
             state.top?.constant = edge + 8; changed = true
         }
+        // The hook runs after Spotify's layout pass. Explicitly invalidate the
+        // containing view: replacing a constraint alone can leave its old frame
+        // visible until an unrelated later layout (also reproducible in UIKit).
+        // Do not call layoutIfNeeded here, which would re-enter the native hook.
+        if changed { root.setNeedsLayout() }
         return changed
     }
 }
