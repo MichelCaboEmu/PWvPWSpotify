@@ -60,7 +60,7 @@ final class UIRegressionApp: UIResponder, UIApplicationDelegate {
         root.layoutIfNeeded()
         for _ in 0..<50 {
             _ = PWTrackMenuLayout.compact(table: table, in: root); root.layoutIfNeeded()
-            check(abs(table.frame.minY - 58) < 1, "table follows native title, without outer gap")
+            check(abs(table.frame.minY - 58) < 1, "table follows native title, without outer gap: table=\(table.frame), root=\(root.frame), title=\(title.frame), constraints=\(root.constraints)")
             check(table.contentInset.top == 0 && table.contentOffset.y >= 0, "no inner scroll spacer")
             check(!oldTop.isActive, "obsolete native top constraint cannot restore the gap")
         }
