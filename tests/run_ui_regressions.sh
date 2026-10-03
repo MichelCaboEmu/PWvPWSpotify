@@ -17,8 +17,26 @@ xcrun simctl boot "$DEVICE" || true
 xcrun simctl bootstatus "$DEVICE" -b
 xcrun simctl install "$DEVICE" "$APP"
 python3 - "$DEVICE" <<'PY'
-import subprocess,sys
-p=subprocess.run(['xcrun','simctl','launch','--console','--terminate-running-process',sys.argv[1],'pw.ui.regression'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=90)
-print(p.stdout)
-if 'UI PASS:' not in p.stdout or 'UI FAIL:' in p.stdout: sys.exit(1)
+import pathlib,subprocess,sys,time
+device=sys.argv[1]
+container=subprocess.check_output(['xcrun','simctl','get_app_container',device,'pw.ui.regression','data'],text=True,timeout=30).strip()
+result=pathlib.Path(container)/'Documents'/'ui-result.txt'
+result.unlink(missing_ok=True)
+# Do not attach simctl's console pipe: on a cold runner it can remain attached
+# after the app exits. The app records its actual assertions atomically instead.
+p=subprocess.run(['xcrun','simctl','launch','--terminate-running-process',device,'pw.ui.regression'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=180)
+print(p.stdout,flush=True)
+if p.returncode: sys.exit(p.returncode)
+deadline=time.monotonic()+180
+last='UI has not started its assertions'
+while time.monotonic()<deadline:
+    if result.exists():
+        message=result.read_text()
+        if message!=last: print(message,flush=True); last=message
+        if message.startswith('UI PASS:'): sys.exit(0)
+        if message.startswith('UI FAIL:'): sys.exit(1)
+    time.sleep(1)
+print('UI TIMEOUT: '+last,flush=True)
+subprocess.run(['xcrun','simctl','terminate',device,'pw.ui.regression'],timeout=30,check=False)
+sys.exit(1)
 PY
