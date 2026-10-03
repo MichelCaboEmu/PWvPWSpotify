@@ -118,7 +118,7 @@ static NSDictionary *PWPlayingTrackInfo(void) {
     PWRefreshMetadataSession(); return info;
 }
 static char kPlayingMenu;
-static char kTrackInfo, kTrackWatcher, kTrackBadge;
+static char kTrackInfo, kTrackWatcher;
 @interface PWTrackMenuWatcher : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic, weak) UIView *button;
 @end
@@ -137,16 +137,15 @@ static NSString *PWRowText(UIView *root) {
     return [texts componentsJoinedByString:@" "];
 }
 static void PWApplyTrackRow(UIView *cell) {
-    UIImageView *badge=objc_getAssociatedObject(cell,&kTrackBadge);
-    badge.alpha=0;
+    UIView *subtitleView=PWIdentified(cell,@"Track.Row.Content.Subtitle");
     UIView *button=PWIdentified(cell,@"Components.UI.ContextMenuButton");
     if(button) objc_setAssociatedObject(button,&kTrackInfo,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    if(!PWDownloadsEnabled())return;
+    if(!PWDownloadsEnabled()){[PWDownloadsBridge decorateDownloadSubtitle:subtitleView downloaded:NO];return;}
     id model=modelFor(cell); NSDictionary *context=contextFor(model);
-    if(!context)return;
+    if(!context){[PWDownloadsBridge decorateDownloadSubtitle:subtitleView downloaded:NO];return;}
     NSString *title=PWRowText(PWIdentified(cell,@"Track.Row.Content.Title"));
     NSString *subtitle=PWRowText(PWIdentified(cell,@"Track.Row.Content.Subtitle"));
-    if(!title.length || !subtitle.length)return;
+    if(!title.length || !subtitle.length){[PWDownloadsBridge decorateDownloadSubtitle:subtitleView downloaded:NO];return;}
     NSMutableDictionary *info=[[PWDownloadsBridge trackInfoFromModel:model uri:context[@"uri"] title:title subtitle:subtitle] mutableCopy];
     if(info){info[@"playlistURI"]=context[@"uri"];info[@"playlistTitle"]=context[@"title"];}
     if(button){
@@ -160,20 +159,7 @@ static void PWApplyTrackRow(UIView *cell) {
             if([button isKindOfClass:UIControl.class])[(UIControl *)button addTarget:watcher action:@selector(tapped) forControlEvents:UIControlEventTouchUpInside|UIControlEventPrimaryActionTriggered];
         }
     }
-    if(![info[@"saved"] boolValue])return;
-    UIView *art=PWIdentified(cell,@"Encore.ImageView");
-    if(!art)return;
-    if(!badge){
-        badge=[[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"checkmark.circle.fill"]];
-        badge.tintColor=UIColor.systemGreenColor;badge.backgroundColor=UIColor.blackColor;
-        badge.layer.cornerRadius=8;badge.clipsToBounds=YES;badge.userInteractionEnabled=NO;
-        badge.isAccessibilityElement=YES;badge.accessibilityLabel=@"Téléchargé sur cet iPhone";
-        objc_setAssociatedObject(cell,&kTrackBadge,badge,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        [cell addSubview:badge];
-    }
-    CGRect frame=[cell convertRect:art.bounds fromView:art];
-    badge.frame=CGRectMake(CGRectGetMaxX(frame)-16,CGRectGetMaxY(frame)-16,16,16);badge.alpha=1;
-    [cell bringSubviewToFront:badge];
+    [PWDownloadsBridge decorateDownloadSubtitle:subtitleView downloaded:[info[@"saved"] boolValue]];
 }
 
 %hook UIApplication
@@ -235,6 +221,21 @@ static void PWApplyTrackRow(UIView *cell) {
 - (void)viewDidLayoutSubviews {
     %orig;
     [PWDownloadsBridge installTrackMenu:(UIViewController *)self];
+}
+%end
+// Verified in the 9.1.78 executable and Redesigned/Player/PlayerScroll.x.
+%hook _TtC21NowPlaying_ScrollImpl23NPVScrollViewController
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    [PWDownloadsBridge captureNativePlayerAppearance:(UIViewController *)self];
+    __weak UIViewController *controller=(UIViewController *)self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if(controller.viewIfLoaded.window)[PWDownloadsBridge captureNativePlayerAppearance:controller];
+    });
+}
+- (void)viewDidLayoutSubviews {
+    %orig;
+    [PWDownloadsBridge captureNativePlayerAppearance:(UIViewController *)self];
 }
 %end
 %ctor {

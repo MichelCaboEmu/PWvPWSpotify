@@ -82,6 +82,21 @@ extension PWDownloadsBridge {
     }
     private static var menuSelectionKey: UInt8 = 0
     private static var menuButtonKey: UInt8 = 0
+    @objc(captureNativePlayerAppearance:)
+    static func captureNativePlayerAppearance(_ controller: UIViewController) {
+        PWNativePlayerAppearance.capture(controller)
+    }
+    @objc(decorateDownloadSubtitle:downloaded:)
+    static func decorateDownloadSubtitle(_ root: UIView?, downloaded: Bool) {
+        guard let root = root else { return }
+        func labels(_ view: UIView) -> [UILabel] {
+            if let label = view as? UILabel { return [label] }
+            return view.subviews.flatMap { labels($0) }
+        }
+        let all = labels(root)
+        let artist = all.max { ($0.text?.count ?? 0) < ($1.text?.count ?? 0) }
+        for label in all { PWDownloadedIndicator.apply(to: label, downloaded: downloaded && label === artist) }
+    }
     @objc(installTrackMenu:)
     static func installTrackMenu(_ menu: UIViewController) {
         let selection: PWTrackMenuSelection
@@ -105,9 +120,9 @@ extension PWDownloadsBridge {
         let saved = PWLocalLibrary.shared.available(selection.track.id) != nil
         var config = UIButton.Configuration.plain()
         config.title = saved ? "Téléchargé sur cet iPhone" : "Télécharger ce titre"
-        config.image = UIImage(systemName: saved ? "checkmark.circle.fill" : "arrow.down.circle")
+        config.image = PWSpotifyVisuals.icon(saved ? "downloaded" : "download", size: 24, color: saved ? .systemGreen : .white) ?? UIImage(systemName: "arrow.down.circle")
         config.imagePadding = 14; config.baseForegroundColor = saved ? .systemGreen : .label
-        config.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 24, bottom: 14, trailing: 24)
+        config.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16)
         button.configuration = config; button.contentHorizontalAlignment = .leading
         button.addAction(UIAction { [weak menu] _ in
             guard let menu = menu else { return }
@@ -123,7 +138,7 @@ extension PWDownloadsBridge {
     @objc(refreshTrackMenuHeader:)
     static func refreshTrackMenuHeader(_ table: UITableView) {
         guard let header = table.tableHeaderView as? PWTrackMenuHeader else { return }
-        if header.resize(width: table.bounds.width) { table.tableHeaderView = header }
+        if header.resize(width: table.bounds.width, table: table) { table.tableHeaderView = header }
     }
     static func chooseSource(_ track: PWAudioTrack, from presenter: UIViewController, destination: PWDownloadDestination? = nil) {
         let alert = UIAlertController(title: track.title, message: track.artist + (destination.map { "\nDossier : " + $0.title } ?? ""), preferredStyle: .actionSheet)
@@ -229,25 +244,4 @@ private final class PWTrackMenuSelection: NSObject {
     let track: PWAudioTrack
     let destination: PWDownloadDestination?
     init(_ track: PWAudioTrack, destination: PWDownloadDestination?) { self.track = track; self.destination = destination }
-}
-
-@MainActor
-private final class PWTrackMenuHeader: UIView {
-    private let prior: UIView?, button: UIButton
-    init(prior: UIView?, button: UIButton, width: CGFloat) {
-        self.prior = prior; self.button = button
-        super.init(frame: .zero)
-        if let prior = prior { addSubview(prior) }
-        addSubview(button); _ = resize(width: width)
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    @discardableResult func resize(width: CGFloat) -> Bool {
-        let height = prior?.bounds.height ?? 0
-        let next = CGRect(x: 0, y: 0, width: width, height: height + 58)
-        let changed = frame != next
-        frame = next
-        prior?.frame = CGRect(x: 0, y: 0, width: width, height: height)
-        button.frame = CGRect(x: 0, y: height, width: width, height: 58)
-        return changed
-    }
 }

@@ -3,8 +3,8 @@ import MediaPlayer
 import AVKit
 import CoreImage
 
-// Full-screen composition follows the supplied Spotify player: artwork above a
-// flexible gap, title/progress/transport below, then lyrics/devices/queue.
+// Uses the installed Spotify fonts/icons and, when available, measured native
+// player geometry. Playback and queue remain backed by the local AVPlayer.
 @MainActor
 final class PWOfflinePlayerController: UIViewController {
     private let scroll = UIScrollView(), content = UIView()
@@ -25,7 +25,9 @@ final class PWOfflinePlayerController: UIViewController {
     }
     private func button(_ symbol: String, _ label: String, size: CGFloat = 24, action: @escaping () -> Void) -> UIButton {
         let value = UIButton(type: .system)
-        value.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: size, weight: .regular)), for: .normal)
+        let native = ["chevron.down":"close", "ellipsis":"more", "backward.fill":"previous", "forward.fill":"next", "list.bullet":"queue"][symbol]
+        value.setImage(native.flatMap { PWSpotifyVisuals.icon($0, size: size) }
+            ?? UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: size, weight: .regular)), for: .normal)
         value.accessibilityLabel = label; value.tintColor = .white
         value.addAction(UIAction { _ in action() }, for: .touchUpInside)
         return value
@@ -54,7 +56,7 @@ final class PWOfflinePlayerController: UIViewController {
         view.layer.insertSublayer(gradient, at: 0)
         scroll.contentInsetAdjustmentBehavior = .never; scroll.showsVerticalScrollIndicator = false
         view.addSubview(scroll); scroll.addSubview(content)
-        heading.font = .systemFont(ofSize: 13, weight: .semibold); heading.textAlignment = .center
+        heading.font = PWSpotifyVisuals.font("SpotifyMixUI-Bold", size: 13, fallback: .semibold); heading.textAlignment = .center
         heading.lineBreakMode = .byTruncatingTail
         close = button("chevron.down", "Réduire le lecteur") { [weak self] in self?.dismiss(animated: true) }
         more = button("ellipsis", "Options du titre") {}
@@ -73,9 +75,9 @@ final class PWOfflinePlayerController: UIViewController {
         cover.contentMode = .scaleAspectFill; cover.clipsToBounds = true; cover.layer.cornerRadius = 11
         cover.layer.cornerCurve = .continuous; cover.backgroundColor = UIColor(white: 0.12, alpha: 1); cover.tintColor = .secondaryLabel
         cover.isAccessibilityElement = true; cover.accessibilityLabel = "Pochette du titre"
-        song.font = UIFontMetrics(forTextStyle: .title2).scaledFont(for: .systemFont(ofSize: 24, weight: .bold))
+        song.font = UIFontMetrics(forTextStyle: .title2).scaledFont(for: PWSpotifyVisuals.font("SpotifyMixUI-Bold", size: 24, fallback: .bold))
         song.numberOfLines = 1; song.lineBreakMode = .byTruncatingTail
-        artist.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 16))
+        artist.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: PWSpotifyVisuals.font("SpotifyMixUI-Regular", size: 16))
         artist.textColor = UIColor.white.withAlphaComponent(0.7); artist.numberOfLines = 1
         saved.image = UIImage(systemName: "checkmark.circle.fill")
         saved.tintColor = UIColor(red: 0.2, green: 0.95, blue: 0, alpha: 1)
@@ -136,6 +138,34 @@ final class PWOfflinePlayerController: UIViewController {
         song.frame = CGRect(x: margin, y: labelsY, width: width - 2 * margin - 47, height: ceil(song.font.lineHeight))
         artist.frame = CGRect(x: margin, y: song.frame.maxY + 4, width: song.frame.width, height: ceil(artist.font.lineHeight))
         saved.frame = CGRect(x: width - margin - 30, y: labelsY + (labelHeight - 30) / 2, width: 30, height: 30)
+        applyNativeGeometry()
+    }
+    private func applyNativeGeometry() {
+        guard let profile = PWNativePlayerAppearance.read(for: view) else { return }
+        let targets: [String: UIView] = ["cover":cover, "song":song, "artist":artist, "heading":heading,
+            "close":close, "more":more, "previous":previous, "play":play, "next":nextButton,
+            "slider":slider, "elapsed":elapsed, "remaining":remaining, "shuffle":shuffle,
+            "repeat":repeatButton, "devices":devices, "queue":queue]
+        // Only apply a complete core layout for this exact screen/safe area/text size.
+        for role in ["cover", "song", "artist", "play", "previous", "next"] {
+            guard let value = profile[role] as? String else { return }
+            let rect = CGRectFromString(value)
+            guard rect.width > 0, rect.height > 0, view.bounds.contains(rect) else { return }
+        }
+        content.frame = view.bounds; scroll.contentSize = view.bounds.size
+        for (role, target) in targets {
+            if let value = profile[role] as? String { target.frame = CGRectFromString(value) }
+            if let label = target as? UILabel, let name = profile[role + "Font"] as? String,
+               let size = profile[role + "Size"] as? Double {
+                label.font = PWSpotifyVisuals.font(name, size: CGFloat(size))
+            }
+        }
+        if let radius = profile["coverRadius"] as? Double { cover.layer.cornerRadius = CGFloat(radius) }
+        saved.center.y = (song.frame.minY + artist.frame.maxY) / 2
+        // Lyrics is the left footer action in the verified Spoti.PW footer.
+        if profile["devices"] != nil, profile["queue"] != nil {
+            lyrics.center = CGPoint(x: view.bounds.width - queue.center.x, y: queue.center.y)
+        }
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -152,9 +182,9 @@ final class PWOfflinePlayerController: UIViewController {
             coloredArtwork = model.artwork; updateColors(model.artwork)
         }
         play.accessibilityLabel = model.playing ? "Pause" : "Lire"
-        play.setImage(UIImage(systemName: model.playing ? "pause.fill" : "play.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 39)), for: .normal)
-        shuffle.setImage(UIImage(systemName: "shuffle", withConfiguration: UIImage.SymbolConfiguration(pointSize: 24)), for: .normal)
-        repeatButton.setImage(UIImage(systemName: model.repeatMode == 2 ? "repeat.1" : "repeat", withConfiguration: UIImage.SymbolConfiguration(pointSize: 24)), for: .normal)
+        play.setImage(PWSpotifyVisuals.icon(model.playing ? "pause" : "play", size: 39) ?? UIImage(systemName: model.playing ? "pause.fill" : "play.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 39)), for: .normal)
+        shuffle.setImage(PWSpotifyVisuals.icon("shuffle", size: 24, color: model.shuffled ? .systemGreen : .white) ?? UIImage(systemName: "shuffle", withConfiguration: UIImage.SymbolConfiguration(pointSize: 24)), for: .normal)
+        repeatButton.setImage(PWSpotifyVisuals.icon(model.repeatMode == 2 ? "repeatOne" : "repeat", size: 24, color: model.repeatMode > 0 ? .systemGreen : .white) ?? UIImage(systemName: model.repeatMode == 2 ? "repeat.1" : "repeat", withConfiguration: UIImage.SymbolConfiguration(pointSize: 24)), for: .normal)
         shuffle.tintColor = model.shuffled ? .systemGreen : .white; shuffle.accessibilityValue = model.shuffled ? "Activée" : "Désactivée"
         repeatButton.tintColor = model.repeatMode > 0 ? .systemGreen : .white
         repeatButton.accessibilityValue = ["Désactivée", "Toute la file", "Ce titre"][model.repeatMode]

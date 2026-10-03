@@ -18,6 +18,8 @@ void PWRefreshMetadataSession(void);
 + (void)stopOfflinePlayback;
 + (NSDictionary *)trackInfoFromModel:(id)model uri:(NSString *)uri title:(NSString *)title subtitle:(NSString *)subtitle;
 + (id)playlistModelFromController:(UIViewController *)controller;
++ (void)captureNativePlayerAppearance:(UIViewController *)controller;
++ (void)decorateDownloadSubtitle:(UIView *)subtitle downloaded:(BOOL)downloaded;
 + (void)refreshTrackMenuHeader:(UITableView *)table;
 + (void)selectMenuTrack:(NSDictionary *)info;
 + (void)installTrackMenu:(UIViewController *)menu;

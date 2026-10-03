@@ -46,7 +46,7 @@ def apply(root, sg, change):
         'CFBundlePackageType': 'BNDL', 'CFBundleVersion': '1'}))
     shutil.copy2(upstream / 'LICENSE', bundle / 'LICENSE-YouTubeKit.txt')
     change(sg / 'tweak/Makefile', 'SafariServices Security MetricKit CoreMedia CoreVideo',
-           'SafariServices Security MetricKit CoreMedia CoreVideo JavaScriptCore WebKit AVKit')
+           'SafariServices Security MetricKit CoreMedia CoreVideo JavaScriptCore WebKit AVKit CoreText')
     change(sg / 'scripts/pipeline.sh', 'FILES=("$TWEAK_DEB")', 'FILES=("$TWEAK_DEB" "$ROOT/PWYouTubeKit.bundle")')
     # Documents are exported audio, visible through Files; the private queue lives in Application Support.
     plist = sg / 'plist/liquid-glass.plist'
