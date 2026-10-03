@@ -73,7 +73,7 @@ enum PWNativePlayerAppearance {
         for (role, view) in targets {
             let rect = window.convert(view.bounds, from: view)
             guard rect.width > 0, rect.height > 0, rect.minY >= 0, rect.maxY <= window.bounds.height else { continue }
-            profile[role] = NSStringFromCGRect(rect)
+            profile[role] = NSCoder.string(for: rect)
             if let label = view as? UILabel { profile[role + "Font"] = label.font.fontName; profile[role + "Size"] = label.font.pointSize }
         }
         profile["coverRadius"] = cover.layer.cornerRadius

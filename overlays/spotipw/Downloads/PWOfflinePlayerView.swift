@@ -149,12 +149,12 @@ final class PWOfflinePlayerController: UIViewController {
         // Only apply a complete core layout for this exact screen/safe area/text size.
         for role in ["cover", "song", "artist", "play", "previous", "next"] {
             guard let value = profile[role] as? String else { return }
-            let rect = CGRectFromString(value)
+            let rect = NSCoder.cgRect(for: value)
             guard rect.width > 0, rect.height > 0, view.bounds.contains(rect) else { return }
         }
         content.frame = view.bounds; scroll.contentSize = view.bounds.size
         for (role, target) in targets {
-            if let value = profile[role] as? String { target.frame = CGRectFromString(value) }
+            if let value = profile[role] as? String { target.frame = NSCoder.cgRect(for: value) }
             if let label = target as? UILabel, let name = profile[role + "Font"] as? String,
                let size = profile[role + "Size"] as? Double {
                 label.font = PWSpotifyVisuals.font(name, size: CGFloat(size))
