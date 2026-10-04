@@ -72,9 +72,9 @@ enum PWTrackMenuLayout {
     static func geometry(table: UITableView, in root: UIView) -> [String: Any] {
         func frame(_ view: UIView?) -> String {
             guard let view = view else { return "absent" }
-            return NSStringFromCGRect(root.convert(view.bounds, from: view))
+            return NSCoder.string(for: root.convert(view.bounds, from: view))
         }
-        var result: [String: Any] = ["root":NSStringFromCGRect(root.bounds), "table":frame(table),
+        var result: [String: Any] = ["root":NSCoder.string(for: root.bounds), "table":frame(table),
             "content_height":table.contentSize.height, "inset_top":table.adjustedContentInset.top,
             "offset_y":table.contentOffset.y, "table_header":frame(table.tableHeaderView),
             "table_footer":frame(table.tableFooterView), "sections":table.numberOfSections]
@@ -83,8 +83,8 @@ enum PWTrackMenuLayout {
             result[key + "_class"] = view.map { NSStringFromClass(type(of: $0)) } ?? "absent"
         }
         if table.numberOfSections > 0 {
-            result["section_0_header"] = NSStringFromCGRect(table.rectForHeader(inSection: 0))
-            if table.numberOfRows(inSection: 0) > 0 { result["first_row"] = NSStringFromCGRect(table.rectForRow(at: IndexPath(row: 0, section: 0))) }
+            result["section_0_header"] = NSCoder.string(for: table.rectForHeader(inSection: 0))
+            if table.numberOfRows(inSection: 0) > 0 { result["first_row"] = NSCoder.string(for: table.rectForRow(at: IndexPath(row: 0, section: 0))) }
         }
         return result
     }
