@@ -24,10 +24,10 @@ final class UIRegressionApp: UIResponder, UIApplicationDelegate {
             guard value() else { report("UI FAIL: \(message)"); exit(1) }
             checks += 1
         }
-        let spacer = UIView(frame: CGRect(x: 0, y: 0, width: 393, height: 900))
-        spacer.autoresizingMask = [.flexibleHeight, .flexibleWidth]
+        let oldHeaderSpacer = UIView(frame: CGRect(x: 0, y: 0, width: 393, height: 900))
+        oldHeaderSpacer.autoresizingMask = [.flexibleHeight, .flexibleWidth]
         let button = UIButton(type: .system)
-        let header = PWTrackMenuHeader(prior: spacer, button: button, width: 393)
+        let header = PWTrackMenuHeader(prior: oldHeaderSpacer, button: button, width: 393)
         for index in 0..<50 {
             _ = header.resize(width: index % 2 == 0 ? 393 : 430)
             check(header.bounds.height == 56, "empty flexible header must not grow")
