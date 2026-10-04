@@ -7,12 +7,14 @@ import UIKit
 final class PWTrackMenuHeader: UIView {
     private let prior: UIView?, button: UIButton
     private var rowHeight: CGFloat = 56
+    private var priorHeight: CGFloat = 0
     private var measuredStyle: String?
     init(prior: UIView?, button: UIButton, width: CGFloat) {
         self.prior = prior; self.button = button
         super.init(frame: .zero)
         autoresizesSubviews = false
         if let prior = prior { addSubview(prior) }
+        priorHeight = contentHeight()
         addSubview(button); _ = resize(width: width)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -69,13 +71,16 @@ final class PWTrackMenuHeader: UIView {
     }
     @discardableResult func resize(width: CGFloat, table: UITableView? = nil) -> Bool {
         if let table = table { matchRows(table) }
-        let height = contentHeight()
+        // Ignore incidental stretching after insertion. Only Speed/pitch has
+        // an intentionally variable height, updated by its own toggle action.
+        if let prior = prior, NSStringFromClass(type(of: prior)).contains("SGSpeedPitchView") { priorHeight = prior.bounds.height }
+        let height = priorHeight
         let nextFrame = CGRect(x: 0, y: 0, width: width, height: height + rowHeight)
         let changed = frame != nextFrame
         // No autoresizing occurs here: the prior height cannot include this row.
         frame = nextFrame
-        prior?.frame = CGRect(x: 0, y: 0, width: width, height: height)
-        button.frame = CGRect(x: 0, y: height, width: width, height: rowHeight)
+        button.frame = CGRect(x: 0, y: 0, width: width, height: rowHeight)
+        prior?.frame = CGRect(x: 0, y: rowHeight, width: width, height: height)
         return changed
     }
 }

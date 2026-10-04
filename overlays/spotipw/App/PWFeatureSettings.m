@@ -64,8 +64,7 @@ SGModRow *PWDownloadsSettingsRow(void){
                 SGActionRow(@"Titres en erreur",@"Voir les causes complètes et réessayer",^{[PWDownloadsBridge errorsFrom:top()];}),
                 SGStatRow(@"Erreurs",^NSString *{return [PWDownloadsBridge errorSummary];})]),
             SGSection(@"Bibliothèque",@[
-                SGActionRow(@"Bibliothèque hors ligne",@"Écouter les fichiers présents sur cet iPhone",^{[PWDownloadsBridge libraryFrom:top()];}),
-                SGSwitchRow(@"Ouvrir hors ligne sans réseau",@"Affiche les playlists téléchargées au lancement",@"spotifyglass.download.autoOffline"),
+                SGActionRow(@"Fichiers locaux Spotify",@"Ouvrir la bibliothèque native de Spotify",^{[PWDownloadsBridge libraryFrom:top()];}),
                 SGActionRow(@"Mettre à jour les métadonnées",@"Pochette, titre, artiste, album et année",^{PWRefreshMetadataSession();[PWDownloadsBridge metadataFrom:top()];})]),
             SGSection(@"Source de secours",@[
                 SGSwitchRow(@"Audius en secours",@"Après deux refus 403 ou si aucun titre ne correspond",@"spotifyglass.download.audiusFallback"),

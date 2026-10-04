@@ -219,14 +219,15 @@ static void PWApplyTrackRow(UIView *cell) {
 %end
 %hook _TtC24ContextMenu_InternalImpl25ContextMenuViewController
 - (void)viewDidLayoutSubviews {
+    // Supply the stable header before Spotify measures preferredContentSize.
+    [PWDownloadsBridge installTrackMenu:(UIViewController *)self];
     %orig;
     [PWDownloadsBridge installTrackMenu:(UIViewController *)self];
 }
 %end
 %ctor {
     %init;
-    [NSUserDefaults.standardUserDefaults registerDefaults:@{@"spotifyglass.download.autoOffline":@YES,@"spotifyglass.download.audiusFallback":@YES}];
-    dispatch_async(dispatch_get_main_queue(), ^{[PWDownloadsBridge startOfflineMonitor];});
+    [NSUserDefaults.standardUserDefaults registerDefaults:@{@"spotifyglass.download.audiusFallback":@YES}];
     [NSNotificationCenter.defaultCenter addObserverForName:@"PWDownloadDiagnostic" object:nil queue:nil usingBlock:^(NSNotification *note){
         NSString *event=note.userInfo[@"event"];
         if([event isKindOfClass:NSString.class]) {

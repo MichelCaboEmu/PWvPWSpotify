@@ -68,8 +68,13 @@ actor PWNativeFileImport {
         return descriptor(record)
     }
     private func descriptor(_ record: Record) -> [String: Any] {
-        ["uri":record.uri, "metadata":["title":record.title, "artist_name":record.artist,
-            "album_title":record.album, "duration":String(Int(record.duration * 1000)), "has_lyrics":"false"]]
+        PWNativeArtwork.register(uri: record.uri, filename: record.filename)
+        var metadata = ["title":record.title, "artist_name":record.artist,
+            "album_title":record.album, "duration":String(Int(record.duration * 1000)), "has_lyrics":"false"]
+        if let image = PWNativeLocalIdentity.artworkURL(file: directory.appendingPathComponent(record.filename))?.absoluteString {
+            for key in ["image_url", "image_small_url", "image_large_url", "image_xlarge_url"] { metadata[key] = image }
+        }
+        return ["uri":record.uri, "metadata":metadata]
     }
 }
 

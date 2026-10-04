@@ -793,7 +793,7 @@ final class PWDownloadQueueController: UITableViewController {
         section == 0 ? PWDownloadsBridge.summary : store.jobs[section - 1].title + (store.jobs[section - 1].paused ? " — en pause" : "")
     }
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        if section == 0 { return "Fichiers audio disponibles dans Bibliothèque hors ligne. Ils sont distincts du cache Spotify. Garde l’app ouverte pendant la recherche ; iOS peut suspendre la file en arrière-plan. Touche un morceau enregistré pour le partager ou l’ouvrir dans une autre app." }
+        if section == 0 { return "Fichiers audio disponibles dans la rubrique Fichiers locaux de Spotify, avec son lecteur et sa file d’attente. Ils sont distincts du cache Spotify et de son filtre Téléchargés. Garde l’app ouverte pendant la recherche ; iOS peut suspendre la file en arrière-plan." }
         let job = store.jobs[section - 1]
         return ["Source : \(pwSourceTitle(job.source)) · \(job.skipped) doublons, épisodes ou fichiers locaux ignorés.", job.notice].compactMap { $0 }.joined(separator: "\n")
     }

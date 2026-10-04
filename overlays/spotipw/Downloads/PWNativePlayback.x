@@ -19,6 +19,24 @@
 static __weak id<PWSpotifyLocalSettings> pw_localSettings;
 BOOL PWNativeLocalPlayback(void) { return [SGURIString(SGPlayerState().track.URI) hasPrefix:@"spotify:local:"]; }
 
+// The native scanner can rebuild a track without our context metadata. Restore
+// only its local cover reference; Spotify's SPTLocalAVAssetImageLoaderRequest
+// reads the embedded picture and delivers it to its own views and queue.
+%hook SPTPlayerTrack
+- (NSDictionary *)metadata {
+    NSDictionary *original = %orig;
+    NSURL *image = [PWDownloadsBridge nativeArtworkURLForURI:SGURIString([(SPTPlayerTrack *)self URI]) ?: @""];
+    if (!image) return original;
+    NSMutableDictionary *metadata = [original mutableCopy] ?: [NSMutableDictionary new];
+    for (NSString *key in @[@"image_url", @"image_small_url", @"image_large_url", @"image_xlarge_url"]) metadata[key] = image.absoluteString;
+    return metadata;
+}
+- (NSURL *)imageURL {
+    NSURL *image = [PWDownloadsBridge nativeArtworkURLForURI:SGURIString([(SPTPlayerTrack *)self URI]) ?: @""];
+    return image ?: %orig;
+}
+%end
+
 @interface PWNativeStateObserver : NSObject <SGPlayerStateObserver>
 @end
 @implementation PWNativeStateObserver

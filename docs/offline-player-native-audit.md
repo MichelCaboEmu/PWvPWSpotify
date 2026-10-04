@@ -47,16 +47,70 @@ tracks carry no online artist/album URI). Spoti.PW's additional lyrics footer
 button is explicitly disabled for native local playback. Existing native controls
 and queue are not replaced or relaid out.
 
-## Context-menu spacing
+## Official behavior and remaining integration boundary (2026-10-04)
 
-The prior header-only test missed two independent sources of blank space: the
-outer table positioning and scroll insets. PWTrackMenuLayout is restricted to a
-track menu containing our download header. It aligns the native content region
-below the actual visible title/artwork, replacing only its top-position constraint,
-clears the top scroll inset and keeps the native data source and index paths.
-Empty UIControls no longer count as meaningful prior-header content. Native row
-font/icon alignment and the green subtitle indicator are retained.
+Sources inspected:
+- https://support.spotify.com/us/article/listen-offline/
+- https://support.spotify.com/us/article/local-files/
 
-UIKit regression tests exercise a 500-point outer gap, a 300-point scroll inset,
-empty controls, repeated layout and subtitle reuse. On-device appearance remains
-a required practical confirmation.
+| Behavior | Official Spotify | This integration |
+| --- | --- | --- |
+| Loss of internet | Downloaded content remains playable in the usual app | No automatic custom modal or replacement library; Spotify owns network/offline UI |
+| Explicit Offline mode | Native setting restricts playback to available content | Native setting remains untouched; local-file playback uses the native engine |
+| Player and queue | Native transports, shuffle, repeat, queue | Same engine and screens, using local URIs |
+| Library Downloaded filter / gray unavailable songs | Availability in Spotify's internal offline cache | External exports are NOT registered in that cache; no fake offline flags |
+| External audio | iOS Local audio files setting, Documents import, Local Files screen | Import copies into Documents; settings shortcut opens the native screen |
+| Playlist membership | Spotify playlist metadata and offline availability are separate | Export folders retain playlist names/membership; this does NOT yet map original catalog playlist entries to local URIs |
+| Unavailable local-track actions | Native restrictions for local tracks | Native restrictions retained; the extra PW lyrics button is disabled |
+
+The earlier automatic PWOfflineStartup modal was not official behavior and is
+removed, including its switch. This does not claim that all downloaded external
+files now behave as native catalog downloads. Bridging the original playlist's
+playability, selected row, local URI mapping and availability observers remains
+unimplemented. Setting OfflineManager's availability alone would make promises
+that its playback/cache cannot honor, so no such spoofing is installed.
+
+## Embedded artwork
+
+The executable provides SPTLocalAVAssetImageLoaderRequest. Its loadLocalFileImage
+(0x1066d1b60) calls NSURL(BetamaxSDK).spt_localFileImagePath (0x1011b3f6c), which
+decodes URI component 2 with stringByRemovingPercentEncoding. The accepted URL
+is `spotify:localfileimage:<percent-encoded absolute audio path>`; the predicate
+spt_isLocalFileImageURL (0x1003a5d34) verifies the three-component form.
+
+Imported descriptors now include that native artwork reference. SPTPlayerTrack
+metadata/imageURL getters also restore it for manifest-owned local URIs rebuilt
+by the scanner. The native image loader, cells and player still render it. Paths
+come only from safe filenames in our private manifest and the current Documents
+directory, so reinstall/container changes do not retain stale absolute paths.
+Unmanaged local files and online tracks are unchanged.
+
+PW's redesigned artwork bridge accepted only Spotify CDN/HTTP images. It now
+reads the same embedded artwork for registered local URIs, checking both URI and
+image identity before publishing an asynchronous result. Native art loading and
+physical-device behavior still require verification in Spotify, not just UIKit.
+
+## Context-menu spacing: revised strategy
+
+The user still observed the gap after 841cf484. The previous test modeled a table
+with an arbitrary top constraint; it did not model Spotify's actual sizing graph.
+That old constraint replacement is removed.
+
+Binary inspection verifies mainView > headerView + divider + bottomLayout +
+bottomSpacer; bottomLayout > contentContainer > native table (0x10282320c and
+0x101fbeb80). viewDidLayoutSubviews (0x102e7e7f0) updates content height and computes
+preferredContentSize using systemLayoutSizeFitting (0x10669e148).
+
+The action header is installed before this measurement and puts Download first,
+with stable sizing independent of incidental prior-header stretching. The fix
+uses the verified `context-menu-header-view` and `context-menu-bottom-layout`
+identifiers, measures the native header's compressed height, and lets the native
+bottom spacer absorb unused sheet height. The spacer is identified by its anchor
+relationships, not a guessed screen position. Native top anchors and row index
+paths stay intact. Unknown hierarchies are not repositioned.
+
+The revised UIKit fixture reproduces the nested containers, a stretched title
+header, fixed content height, bottom spacer, repeated sizing and top insets. Logs
+capture native header/container/table/first-row geometry at 0, 1 and 5 seconds so
+device differences can be diagnosed without another blind offset adjustment.
+This is a candidate fix until the real menu on the user's iPhone confirms it.

@@ -178,3 +178,23 @@ static void applyToolbar(UIView *headerRoot) {''')
     change(footer, '#import "Player.h"', '#import "Player.h"\n#import "Shared/Downloads/PWDownloads.h"')
     change(footer, 'BOOL enabled = SGRPlayerLyricsAvailable() || SGRPlayerLyricsOpen(), open = SGRPlayerLyricsOpen();',
            'BOOL local = PWNativeLocalPlayback();\n    BOOL enabled = !local && (SGRPlayerLyricsAvailable() || SGRPlayerLyricsOpen()), open = !local && SGRPlayerLyricsOpen();')
+
+    # The native cover loader understands spotify:localfileimage. The redesign's
+    # field bridge previously accepted only HTTP/CDN images, so also feed it the
+    # same embedded artwork, retaining its URI guard against stale completions.
+    artwork = source / 'Redesigned/Kit/SGRBridges.x'
+    change(artwork, '#import "SGRBridges.h"', '#import "SGRBridges.h"\n#import "Shared/Downloads/PWDownloads.h"')
+    change(artwork, '    if (!uri) return;\n    // The same track', '''    if (!uri) return;
+    NSURL *localArtwork = [PWDownloadsBridge nativeArtworkURLForURI:uri];
+    if (localArtwork) {
+        NSString *key = localArtwork.absoluteString;
+        if ([uri isEqualToString:sg_wantedURI] && [key isEqualToString:sg_wantedKey]) return;
+        sg_wantedURI = uri; sg_wantedKey = key;
+        [sg_fetch cancel]; sg_fetch = nil;
+        [PWDownloadsBridge loadNativeArtworkForURI:uri completion:^(UIImage *image) {
+            if (image && [uri isEqualToString:sg_wantedURI] && [key isEqualToString:sg_wantedKey])
+                publish(image, key, SGRArtworkQualityExact);
+        }];
+        return;
+    }
+    // The same track''')

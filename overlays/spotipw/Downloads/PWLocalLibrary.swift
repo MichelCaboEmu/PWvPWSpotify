@@ -2,7 +2,6 @@ import Foundation
 import UIKit
 import AVFoundation
 import MediaPlayer
-import Network
 
 func pwSourceName(_ source: Int) -> String { source == 3 ? "audius" : source == 0 ? "youtube_music" : "youtube" }
 func pwSourceTitle(_ source: Int) -> String { source == 3 ? "Audius — gratuit" : source == 0 ? "YouTube Music" : "YouTube" }
@@ -231,41 +230,5 @@ final class PWLocalLibraryController: UITableViewController {
             share.completionWithItemsHandler = { _, _, _, _ in if scoped { location.root.stopAccessingSecurityScopedResource() } }
             controller.present(share, animated: true)
         } catch { notice(error.localizedDescription, from: controller) }
-    }
-}
-
-@MainActor
-final class PWOfflineStartup {
-    static let shared = PWOfflineStartup()
-    private let monitor = NWPathMonitor()
-    private var handled = false
-    private var offline = false
-    func start() {
-        monitor.pathUpdateHandler = { [weak self] path in
-            Task { @MainActor in self?.offline = path.status == .unsatisfied; self?.offer() }
-        }
-        monitor.start(queue: DispatchQueue(label: "PWOfflineNetwork"))
-        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.offer() }
-        }
-    }
-    private func offer() {
-        guard !handled, offline, UIApplication.shared.applicationState == .active,
-              UserDefaults.standard.object(forKey: "spotifyglass.download.autoOffline") as? Bool ?? true else { return }
-        _ = PWDownloadStore.shared // migrate the old queue before checking availability
-        guard !PWLocalLibrary.shared.playlists.isEmpty else { return }
-        // On launch Spotify can still be presenting its root; retry a bounded time.
-        handled = true
-        Task { @MainActor in
-            for _ in 0..<10 {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                guard offline else { return }
-                if let controller = PWDownloadsBridge.topController(), controller.presentedViewController == nil,
-                   controller.viewIfLoaded?.window != nil, !controller.isBeingPresented {
-                    PWDownloadsBridge.library(from: controller); pwEvent("offline_library_opened"); return
-                }
-            }
-            handled = false
-        }
     }
 }

@@ -18,7 +18,10 @@ extension PWDownloadsBridge {
     @objc(libraryFrom:)
     static func library(from presenter: UIViewController) {
         _ = PWDownloadStore.shared
-        panel(PWLocalLibraryController(style: .insetGrouped), from: presenter)
+        _ = PWNativePlayback.handler?(["operation":"enable"])
+        if PWNativePlayback.handler?(["operation":"open_files"]) != true {
+            PWLocalLibraryController.notice("Ouvre Bibliothèque → Fichiers locaux dans Spotify.", from: presenter)
+        }
     }
     @objc(errorsFrom:)
     static func errors(from presenter: UIViewController) { panel(PWDownloadErrorsController(style: .insetGrouped), from: presenter) }
@@ -33,7 +36,6 @@ extension PWDownloadsBridge {
         _ = PWDownloadStore.shared
         panel(PWMetadataController(style: .insetGrouped), from: presenter)
     }
-    @objc static func startOfflineMonitor() { PWOfflineStartup.shared.start() }
     // FTPViewController owns playlistViewModel; the header controller is a sibling,
     // not an ancestor of a track cell. Field verified in 9.1.78 Swift metadata.
     @objc(playlistModelFromController:)
@@ -135,12 +137,11 @@ extension PWDownloadsBridge {
         rows.invalidateIntrinsicContentSize()
         if objc_getAssociatedObject(menu, &menuLayoutLoggedKey) == nil {
             objc_setAssociatedObject(menu, &menuLayoutLoggedKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-            DispatchQueue.main.async { [weak menu, weak rows] in
-                guard let menu = menu, let rows = rows else { return }
-                let rect = menu.view.convert(rows.bounds, from: rows)
-                pwEvent("track_menu_geometry", details: ["table_y":rect.minY, "table_height":rect.height,
-                    "header_height":rows.tableHeaderView?.bounds.height ?? 0, "inset_top":rows.adjustedContentInset.top,
-                    "offset_y":rows.contentOffset.y, "root_height":menu.view.bounds.height])
+            for delay in [0.0, 1.0, 5.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak menu, weak rows] in
+                    guard let menu = menu, let rows = rows, menu.viewIfLoaded?.window != nil else { return }
+                    pwEvent("track_menu_geometry", details: PWTrackMenuLayout.geometry(table: rows, in: menu.view).merging(["after_seconds":delay]) { _, new in new })
+                }
             }
         }
     }

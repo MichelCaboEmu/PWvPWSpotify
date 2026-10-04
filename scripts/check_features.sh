@@ -15,7 +15,7 @@ SOURCES=(
   Redesigned/Lyrics/SGRKaraokeView.m Native/Lyrics/LyricsPage.x
   Shared/Downloads/PWDownloadButton.x Shared/Downloads/PWNativePlayback.x Native/Playlist/Playlist.x
   Shared/Lyrics/KaraokeSource.x Shared/Player/SpeedPitchMenu.x
-  Redesigned/Playlist/PlaylistHeader.x Redesigned/Kit/SGRHeaderInfo.m Redesigned/Player/PlayerFooter.x
+  Redesigned/Playlist/PlaylistHeader.x Redesigned/Kit/SGRHeaderInfo.m Redesigned/Kit/SGRBridges.x Redesigned/Player/PlayerFooter.x
 )
 failed=0
 for relative in "${SOURCES[@]}"; do

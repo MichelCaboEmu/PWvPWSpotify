@@ -25,6 +25,12 @@ import Foundation
         check(PWNativeLocalIdentity.context(tracks: [["uri":"spotify:track:abc"]], title: "No", index: 0) == nil, "reject online URI")
         check(PWNativeLocalIdentity.context(tracks: tracks, title: "No", index: 2) == nil, "reject out of bounds selection")
         check(PWNativeLocalIdentity.context(tracks: [], title: "No", index: 0) == nil, "reject empty context")
+        let file = URL(fileURLWithPath: "/Documents/PNL — 91's + 50%: été.m4a")
+        let art = PWNativeLocalIdentity.artworkURL(file: file)!.absoluteString
+        let parts = art.components(separatedBy: ":")
+        check(parts.count == 3 && parts[1] == "localfileimage", "native AVAsset loader scheme")
+        check(parts[2].removingPercentEncoding == file.path, "native URI component 2 decodes exactly, including plus and UTF8")
+        check(PWNativeLocalIdentity.artworkURL(file: URL(string: "https://example.com/audio.m4a")!) == nil, "no remote file passed as local artwork")
         print("Native local identity PASS: \(checks) checks")
     }
 }
