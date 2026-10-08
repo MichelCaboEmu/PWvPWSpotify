@@ -19,10 +19,10 @@ enum PWNativeLocalIdentity {
         }
         return "spotify:local:\(escape(artist)):\(escape(album)):\(escape(title)):\(Int(duration))"
     }
-    static func context(tracks: [[String: Any]], title: String, index: Int) -> [String: Any]? {
+    static func context(tracks: [[String: Any]], title: String, index: Int, playlistURI: String? = nil) -> [String: Any]? {
         guard tracks.indices.contains(index), !tracks.isEmpty,
               tracks.allSatisfy({ ($0["uri"] as? String)?.hasPrefix("spotify:local:") == true }) else { return nil }
-        return ["operation":"play", "context":["uri":"spotify:local-files", "pages":[["tracks":tracks]],
+        return ["operation":"play", "context":["uri":playlistURI ?? "spotify:local-files", "pages":[["tracks":tracks]],
                 "metadata":["context_description":title]],
                 "options":["skip_to":["track_index":index], "always_play_something":false, "initially_paused":false]]
     }

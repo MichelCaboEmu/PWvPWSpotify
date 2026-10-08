@@ -54,6 +54,10 @@ jobs:
         run: |
           xcrun swiftc overlays/spotipw/Downloads/PWNativeLocalIdentity.swift tests/native_local_identity.swift -o /tmp/pw-native-local-tests
           /tmp/pw-native-local-tests
+      - name: Test offline playlist membership and unavailable selections
+        run: |
+          xcrun swiftc overlays/spotipw/Downloads/PWOfflinePlaylistRules.swift tests/offline_playlist.swift -o /tmp/pw-offline-playlist-tests
+          /tmp/pw-offline-playlist-tests
       - name: Test audio transfer, progress, timeout and cancellation
         run: |
           xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos13.0" overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWYouTubeAccess.swift overlays/spotipw/Downloads/PWAudioTransfer.swift tests/audio_transfer.swift -o /tmp/pw-transfer-tests

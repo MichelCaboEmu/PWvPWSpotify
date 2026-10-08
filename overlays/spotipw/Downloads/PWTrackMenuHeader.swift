@@ -48,9 +48,12 @@ final class PWTrackMenuHeader: UIView {
         }
         visit(cell.contentView)
         guard let label = labels.max(by: { ($0.text?.count ?? 0) < ($1.text?.count ?? 0) }) else { return }
-        let textX = cell.convert(label.bounds, from: label).minX
-        let glyph = glyphs.filter { cell.convert($0.bounds, from: $0).maxX <= textX }.min { cell.convert($0.bounds, from: $0).minX < cell.convert($1.bounds, from: $1).minX }
-        let iconX = glyph.map { cell.convert($0.bounds, from: $0).minX } ?? 16
+        // The header spans the table, but inset/grouped native cells need not.
+        // Measure both glyph and text in OUR coordinates, not the cell's local
+        // coordinates (which previously discarded its horizontal inset).
+        let textX = convert(label.bounds, from: label).minX
+        let glyph = glyphs.filter { convert($0.bounds, from: $0).maxX <= textX }.min { convert($0.bounds, from: $0).minX < convert($1.bounds, from: $1).minX }
+        let iconX = glyph.map { convert($0.bounds, from: $0).minX } ?? 16
         let iconWidth = glyph?.bounds.width ?? 24
         guard textX > iconX + iconWidth, textX < 100 else { return }
         rowHeight = cell.bounds.height

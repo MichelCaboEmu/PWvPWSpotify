@@ -2,6 +2,12 @@ import UIKit
 import Darwin
 
 @MainActor
+final class NativeRowFixtureTable: UITableView {
+    let sample = UITableViewCell(style: .default, reuseIdentifier: nil)
+    override var visibleCells: [UITableViewCell] { [sample] }
+}
+
+@MainActor
 @main
 final class UIRegressionApp: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
@@ -48,6 +54,26 @@ final class UIRegressionApp: UIResponder, UIApplicationDelegate {
         let container = UIView(frame: emptyControl.frame); container.addSubview(emptyControl)
         let emptyHeader = PWTrackMenuHeader(prior: container, button: UIButton(type: .system), width: 393)
         check(emptyHeader.bounds.height == 56, "empty controls do not count as header content")
+        report("UI RUNNING: inset native menu row alignment")
+        let alignmentTable = NativeRowFixtureTable(frame: CGRect(x: 0, y: 0, width: 393, height: 400), style: .plain)
+        let sample = alignmentTable.sample; alignmentTable.addSubview(sample)
+        sample.frame = CGRect(x: 24, y: 56, width: 345, height: 56)
+        sample.contentView.frame = sample.bounds
+        let nativeIcon = UIImageView(image: UIImage(systemName: "square.and.arrow.up"))
+        nativeIcon.frame = CGRect(x: 8, y: 16, width: 24, height: 24)
+        let nativeLabel = UILabel(frame: CGRect(x: 46, y: 14, width: 270, height: 28))
+        nativeLabel.text = "Partager"; nativeLabel.font = .systemFont(ofSize: 18)
+        sample.contentView.addSubview(nativeIcon); sample.contentView.addSubview(nativeLabel)
+        let alignedButton = UIButton(type: .system)
+        var alignedConfig = UIButton.Configuration.plain(); alignedConfig.title = "Télécharger ce titre"
+        alignedConfig.image = UIImage(systemName: "arrow.down.circle"); alignedButton.configuration = alignedConfig
+        alignedButton.contentHorizontalAlignment = .leading
+        let alignedHeader = PWTrackMenuHeader(prior: nil, button: alignedButton, width: 393)
+        alignmentTable.tableHeaderView = alignedHeader
+        _ = alignedHeader.resize(width: 393, table: alignmentTable)
+        check(abs((alignedButton.configuration?.contentInsets.leading ?? 0) - 32) < 0.1, "download glyph includes native cell's 24pt inset")
+        check(abs((alignedButton.configuration?.imagePadding ?? 0) - 14) < 0.1, "native icon-to-text spacing retained")
+        check(alignedHeader.bounds.height == 56, "native row height retained")
         report("UI RUNNING: native header, nested action container and bottom spacer")
         let root = UIView(frame: CGRect(x: 0, y: 0, width: 393, height: 800))
         let nativeHeader = UIView(); nativeHeader.accessibilityIdentifier = "context-menu-header-view"

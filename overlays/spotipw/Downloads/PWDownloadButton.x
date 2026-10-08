@@ -118,7 +118,7 @@ static NSDictionary *PWPlayingTrackInfo(void) {
     PWRefreshMetadataSession(); return info;
 }
 static char kPlayingMenu;
-static char kTrackInfo, kTrackWatcher;
+static char kTrackInfo, kTrackWatcher, kOfflineRowAlpha;
 @interface PWTrackMenuWatcher : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic, weak) UIView *button;
 @end
@@ -137,6 +137,8 @@ static NSString *PWRowText(UIView *root) {
     return [texts componentsJoinedByString:@" "];
 }
 static void PWApplyTrackRow(UIView *cell) {
+    NSNumber *oldAlpha=objc_getAssociatedObject(cell,&kOfflineRowAlpha);
+    if(oldAlpha){cell.alpha=oldAlpha.doubleValue;objc_setAssociatedObject(cell,&kOfflineRowAlpha,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     UIView *subtitleView=PWIdentified(cell,@"Track.Row.Content.Subtitle");
     UIView *button=PWIdentified(cell,@"Components.UI.ContextMenuButton");
     if(button) objc_setAssociatedObject(button,&kTrackInfo,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -160,7 +162,66 @@ static void PWApplyTrackRow(UIView *cell) {
         }
     }
     [PWDownloadsBridge decorateDownloadSubtitle:subtitleView downloaded:[info[@"saved"] boolValue]];
+    [PWDownloadsBridge observeOfflinePlaylistRow:cell];
+    if([PWDownloadsBridge offlinePlaylistEnabled] && ![info[@"saved"] boolValue]){
+        objc_setAssociatedObject(cell,&kOfflineRowAlpha,@(cell.alpha),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        cell.alpha=MIN(cell.alpha,0.42);
+    }
 }
+
+static UIViewController *PWPlaylistPresenter(UIView *view) {
+    for(UIResponder *r=view;r;r=r.nextResponder)
+        if([r isKindOfClass:UIViewController.class] && [NSStringFromClass(r.class) containsString:@"FTPViewController"])return (id)r;
+    return nil;
+}
+static BOOL PWSelectOfflineRow(UIView *cell) {
+    if(!cell || !PWDownloadsEnabled() || ![PWDownloadsBridge offlinePlaylistEnabled])return NO;
+    UIView *titleView=PWIdentified(cell,@"Track.Row.Content.Title");
+    if(!titleView)return NO; // headers, episodes and recommendations are not guessed
+    id model=modelFor(cell); NSDictionary *context=contextFor(model);
+    UIViewController *presenter=PWPlaylistPresenter(cell);
+    if(!context || !presenter)return NO;
+    NSDictionary *info=[PWDownloadsBridge trackInfoFromModel:model uri:context[@"uri"] title:PWRowText(titleView)
+        subtitle:PWRowText(PWIdentified(cell,@"Track.Row.Content.Subtitle"))];
+    if(!info || ![info[@"saved"] boolValue]){
+        PWEventDetails(@"download",@"playlist_offline_row_blocked",0,@{@"resolved":@(info!=nil)});
+        UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification,@"Ce titre n’est pas téléchargé sur cet iPhone.");
+        return YES;
+    }
+    return [PWDownloadsBridge playOfflinePlaylistFrom:presenter model:model uri:context[@"uri"] title:context[@"title"] selected:info[@"id"]];
+}
+
+// Verified ObjC entry points in 9.1.78. Keep the original collection/table,
+// sections and data source. Online selections are forwarded without changes.
+%hook _TtC35ListUXPlatform_FreeTierPlaylistImpl31FTPEstimatedHeightTableDelegate
+- (void)tableView:(UITableView *)table willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    %orig;
+    PWApplyTrackRow(cell);
+}
+- (void)collectionView:(UICollectionView *)collection didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
+    if(PWSelectOfflineRow([collection cellForItemAtIndexPath:indexPath])){[collection deselectItemAtIndexPath:indexPath animated:NO];return;}
+    %orig;
+}
+- (void)tableView:(UITableView *)table didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    if(PWSelectOfflineRow([table cellForRowAtIndexPath:indexPath])){[table deselectRowAtIndexPath:indexPath animated:NO];return;}
+    %orig;
+}
+%end
+%hook _TtC35ListUXPlatform_FreeTierPlaylistImpl26FTPViewModelImplementation
+- (void)play {
+    if(PWDownloadsEnabled() && [PWDownloadsBridge offlinePlaylistEnabled]){
+        NSDictionary *context=contextFor(self);
+        UIViewController *presenter=nil;
+        for(UIScene *scene in UIApplication.sharedApplication.connectedScenes){
+            if(scene.activationState!=UISceneActivationStateForegroundActive || ![scene isKindOfClass:UIWindowScene.class])continue;
+            for(UIWindow *window in ((UIWindowScene *)scene).windows)if(window.isKeyWindow)presenter=window.rootViewController;
+        }
+        while(presenter.presentedViewController)presenter=presenter.presentedViewController;
+        if(context && presenter && [PWDownloadsBridge playOfflinePlaylistFrom:presenter model:self uri:context[@"uri"] title:context[@"title"] selected:nil])return;
+    }
+    %orig;
+}
+%end
 
 %hook UIApplication
 - (void)sendEvent:(UIEvent *)event {

@@ -114,3 +114,46 @@ header, fixed content height, bottom spacer, repeated sizing and top insets. Log
 capture native header/container/table/first-row geometry at 0, 1 and 5 seconds so
 device differences can be diagnosed without another blind offset adjustment.
 This is a candidate fix until the real menu on the user's iPhone confirms it.
+
+## Playlist bridge — next device validation
+
+The user confirmed that native playback works, but requested playback directly
+from the original playlist and Liked Songs instead of the combined Local Files
+view. The following addition does not mutate server-side playlists:
+
+- Verified `FTPEstimatedHeightTableDelegate` selection methods for UICollectionView
+  and UITableView dispatch a finite queue of available files for the displayed
+  playlist. Unknown or unavailable selected music rows are blocked, never replaced
+  by the first available song. Exact title/artist resolution must be unambiguous.
+- Verified `FTPViewModelImplementation.play` supplies the same playlist-scoped
+  queue for its native Play button. Pause/resume use the existing player only
+  when the actual native context matches that playlist.
+- Native context URI remains the original playlist or `spotify:collection:tracks`;
+  supplied pages contain only local URIs, with no network continuation. Original
+  selection is remapped after unavailable files are removed from the queue.
+- A complete displayed model supersedes cached membership. Incomplete models use
+  only that playlist's saved members plus newly verified rows, never all files.
+  Cached unloaded membership may still be stale until Spotify refreshes it.
+- `NWPathMonitor` observes disconnection. Native `SPTConnectivityManagerImplementation`
+  initialization and both `setAllowNetwork:` variants observe manual Offline
+  mode; the tweak does not change that mode or introduce an offline popup.
+- Existing native rows are dimmed when unavailable. Online selection goes through
+  unchanged. Menu actions stay available; blocking concerns starting playback.
+
+New selectors/signatures were checked against the complete 9.1.78 executable:
+collection selection 0x107ed91f8 (`v32@0:8@16@24`), view model play
+0x1019ca844 (`v16@0:8`), native allowNetwork initializer
+0x109784a38 (`@44@0:8@16B24@28@36`), both setters
+0x1097857fc and 0x109785890. SPTPlayerState.contextURI is verified at
+0x101a270cc. Native pause:/resume: return the engine's command objects.
+
+The remaining menu alignment was measured in cell-local coordinates even though
+the injected header spans the whole table. The fix converts label/icon positions
+into the header's coordinates, preserving native cell insets. A UIKit fixture
+with a 24-point cell inset guards this regression.
+
+Storage cleanup is NOT included yet: the native Documents import remains the
+known-working input to Spotify's scanner. Deleting it or assuming recursive
+indexing of export folders without evidence could break the user's confirmed
+playback. No existing audio file is deleted by these changes. Physical iPhone
+validation is still required for the new playlist entry points and context URI.

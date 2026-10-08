@@ -82,7 +82,9 @@ actor PWNativeFileImport {
 enum PWNativePlayback {
     static var handler: ((NSDictionary) -> Bool)?
     static var state: [String: Any] = [:]
-    private static var busy = false
+    static var activePlaylist: String?
+    private static var playTask: Task<Void, Never>?
+    private static var playRequest = UUID()
     static func importDownloaded(_ entry: PWLocalEntry) {
         Task {
             do {
@@ -92,38 +94,53 @@ enum PWNativePlayback {
             } catch { pwEvent("native_file_import_failed", details: PWDownloadLog.error(error)) }
         }
     }
-    static func play(_ entries: [PWLocalEntry], at index: Int, title: String, from presenter: UIViewController) {
-        guard !busy, entries.indices.contains(index) else { return }; busy = true
+    static func play(_ entries: [PWLocalEntry], at index: Int, title: String, from presenter: UIViewController, playlistURI: String? = nil) {
+        guard entries.indices.contains(index) else { return }
+        playTask?.cancel()
+        let request = UUID(); playRequest = request
         let previousPrompt = presenter.navigationItem.prompt
-        presenter.navigationItem.prompt = "Préparation pour le lecteur Spotify…"
-        Task { @MainActor [weak presenter] in
-            defer { busy = false; presenter?.navigationItem.prompt = previousPrompt }
+        if playlistURI == nil { presenter.navigationItem.prompt = "Préparation pour le lecteur Spotify…" }
+        playTask = Task { @MainActor [weak presenter] in
+            defer {
+                if playRequest == request {
+                    playTask = nil
+                    if playlistURI == nil { presenter?.navigationItem.prompt = previousPrompt }
+                }
+            }
             do {
                 guard handler?(["operation":"enable"]) == true else {
                     throw pwError("L’import des fichiers locaux Spotify n’est pas encore prêt. Ouvre Bibliothèque → Fichiers locaux, puis réessaie.")
                 }
                 var tracks: [[String: Any]] = []
-                for entry in entries { tracks.append(try await PWNativeFileImport.shared.prepare(entry)) }
-                guard let payload = PWNativeLocalIdentity.context(tracks: tracks, title: title, index: index),
+                for entry in entries {
+                    try Task.checkCancellation()
+                    tracks.append(try await PWNativeFileImport.shared.prepare(entry))
+                }
+                guard let payload = PWNativeLocalIdentity.context(tracks: tracks, title: title, index: index, playlistURI: playlistURI),
                       let target = tracks[index]["uri"] as? String else { throw pwError("Liste de fichiers locaux invalide.") }
                 _ = handler?(["operation":"enable"])
                 // The native scanner discovers moved files asynchronously.
                 try await Task.sleep(nanoseconds: 1_000_000_000)
+                try Task.checkCancellation()
+                guard playlistURI == nil || PWOfflinePlaylist.enabled else { throw CancellationError() }
                 guard handler?(payload as NSDictionary) == true else { throw pwError("Le lecteur Spotify n’a pas accepté cette liste de fichiers locaux.") }
                 pwEvent("native_play_requested", tracks.count, details: ["playlist":title, "index":index])
                 for _ in 0..<24 {
                     try await Task.sleep(nanoseconds: 500_000_000)
                     if state["uri"] as? String == target, state["playing"] as? Bool == true {
+                        activePlaylist = playlistURI
                         pwEvent("native_play_confirmed", details: ["playlist":title])
                         guard let presenter = presenter else { return }
                         let modal = presenter.navigationController ?? presenter
-                        if modal.presentingViewController != nil { modal.dismiss(animated: true) { _ = handler?(["operation":"open_player"]) } }
+                        if playlistURI != nil { _ = handler?(["operation":"open_player"]) }
+                        else if modal.presentingViewController != nil { modal.dismiss(animated: true) { _ = handler?(["operation":"open_player"]) } }
                         else { _ = handler?(["operation":"open_player"]) }
                         return
                     }
                 }
                 throw pwError("Spotify n’a pas confirmé la lecture. Ses fichiers locaux peuvent être encore en cours d’indexation. Ouvre Bibliothèque → Fichiers locaux et vérifie que le titre y apparaît. Aucun autre lecteur n’a été lancé.")
             } catch {
+                if error is CancellationError || Task.isCancelled { return }
                 pwEvent("native_play_failed", details: PWDownloadLog.error(error))
                 if let presenter = presenter { PWLocalLibraryController.notice(error.localizedDescription, from: presenter) }
             }
@@ -136,6 +153,7 @@ extension PWDownloadsBridge {
     @objc(nativePlaybackState:)
     static func nativePlaybackState(_ state: NSDictionary) {
         PWNativePlayback.state = state as? [String: Any] ?? [:]
+        if !(PWNativePlayback.state["uri"] as? String ?? "").hasPrefix("spotify:local:") { PWNativePlayback.activePlaylist = nil }
         PWNativePlayback.state["updated"] = Date()
     }
 }

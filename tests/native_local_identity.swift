@@ -22,6 +22,13 @@ import Foundation
         let options = request["options"] as! [String: Any]
         check((options["skip_to"] as! [String: Int])["track_index"] == 1, "selected start index")
         check(options["always_play_something"] as? Bool == false, "no streaming fallback")
+        let playlistURI = "spotify:playlist:1234567890123456789012"
+        let playlist = PWNativeLocalIdentity.context(tracks: tracks, title: "Avion", index: 1, playlistURI: playlistURI)!
+        let nativeContext = playlist["context"] as! [String: Any]
+        check(nativeContext["uri"] as? String == playlistURI, "native queue retains originating playlist")
+        check((nativeContext["pages"] as! [[String: Any]]).count == 1, "playlist queue is finite and locally supplied")
+        let liked = PWNativeLocalIdentity.context(tracks: tracks, title: "Titres likés", index: 0, playlistURI: "spotify:collection:tracks")!
+        check((liked["context"] as! [String: Any])["uri"] as? String == "spotify:collection:tracks", "liked songs retain their native context")
         check(PWNativeLocalIdentity.context(tracks: [["uri":"spotify:track:abc"]], title: "No", index: 0) == nil, "reject online URI")
         check(PWNativeLocalIdentity.context(tracks: tracks, title: "No", index: 2) == nil, "reject out of bounds selection")
         check(PWNativeLocalIdentity.context(tracks: [], title: "No", index: 0) == nil, "reject empty context")
