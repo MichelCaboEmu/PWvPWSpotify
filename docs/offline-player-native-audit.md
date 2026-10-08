@@ -152,8 +152,11 @@ the injected header spans the whole table. The fix converts label/icon positions
 into the header's coordinates, preserving native cell insets. A UIKit fixture
 with a 24-point cell inset guards this regression.
 
-Storage cleanup is NOT included yet: the native Documents import remains the
-known-working input to Spotify's scanner. Deleting it or assuming recursive
-indexing of export folders without evidence could break the user's confirmed
-playback. No existing audio file is deleted by these changes. Physical iPhone
-validation is still required for the new playlist entry points and context URI.
+The native Documents import remains the known-working scanner input. New imports
+and playlist exports use hard links when supported: both paths remain visible,
+but share physical audio storage. External providers/volumes fall back to copies.
+Previously imported manifest-owned files are consolidated on reuse only when
+their bytes match; differently tagged files are retained. Metadata writers must
+replace files, never mutate shared audio in place. No assumption is made about
+recursive indexing. Physical iPhone validation is still required for the new
+playlist entry points and context URI.

@@ -26,6 +26,7 @@ actor PWNativeFileImport {
         let fm = FileManager.default, modified = values.contentModificationDate ?? .distantPast
         if let saved = records?[entry.track.id], PWLibraryCatalog.safeComponent(saved.filename), saved.source == location.file.path, saved.size == values.fileSize,
            saved.modified == modified, fm.fileExists(atPath: directory.appendingPathComponent(saved.filename).path) {
+            _ = PWSharedAudioFile.consolidate(location.file, target: directory.appendingPathComponent(saved.filename))
             return descriptor(saved)
         }
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -42,7 +43,8 @@ actor PWNativeFileImport {
         // Staging outside Documents prevents Spotify scanning an incomplete copy.
         let staging = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".m4a")
         defer { try? fm.removeItem(at: staging) }
-        try fm.copyItem(at: location.file, to: staging)
+        let shared = try PWSharedAudioFile.materialize(location.file, at: staging)
+        pwEvent("native_import_storage", details: ["mode": shared ? "shared" : "copy"])
         var asset = AVURLAsset(url: staging, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         var tags = try await asset.load(.commonMetadata)
         func text(_ key: AVMetadataKey, _ values: [AVMetadataItem]) async throws -> String {

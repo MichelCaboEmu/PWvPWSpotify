@@ -35,7 +35,7 @@ extension PWDownloadFiles {
                 }
                 try Task.checkCancellation()
                 let destination = directory.appendingPathComponent(filename)
-                try fm.copyItem(at: temporary, to: destination)
+                try PWSharedAudioFile.materialize(temporary, at: destination)
                 index.playlists[identity]?.tracks[track.id] = filename
                 do { try JSONEncoder().encode(index).write(to: indexURL, options: .atomic) }
                 catch { try? fm.removeItem(at: destination); throw error }
