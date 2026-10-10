@@ -475,7 +475,7 @@ final class PWDownloadStore {
         } else {
             do {
                 file = try await PWMediaRetry.run(operation: { attempt in
-                    try await self.fetchAudio(track, source: source, attempt: attempt,
+                    try await self.fetchPreferredYouTube(track, source: source, attempt: attempt,
                         trace: trace.merging(["transfer_attempt": attempt]) { _, new in new }, progress: progress)
                 }, forbidden: { ($0 as? PWAudioHTTPError)?.status == 403 }, waiting: {
                     progress("Flux refusé : nouvelle tentative dans 3 secondes…")
@@ -501,6 +501,19 @@ final class PWDownloadStore {
         } catch {
             if Task.isCancelled { try? FileManager.default.removeItem(at: file); throw error }
             pwEvent("basic_metadata_failed", details: PWDownloadLog.error(error)); return file
+        }
+    }
+    private func fetchPreferredYouTube(_ track: PWAudioTrack, source: Int, attempt: Int, trace: [String: Any], progress: @escaping @MainActor (String) -> Void) async throws -> URL {
+        do { return try await fetchAudio(track, source: source, attempt: attempt, trace: trace, progress: progress) }
+        catch {
+            try Task.checkCancellation()
+            // Music search can omit an artist's official video while the public
+            // YouTube channel still exposes it. Check that before SoundCloud.
+            guard source == 0, (error as? PWDownloadError)?.fallbackEligible == true,
+                  (error as? PWDownloadError)?.pausesQueue != true else { throw error }
+            let publicTrace = trace.merging(["requested_source": "youtube_music", "source": "youtube"]) { _, new in new }
+            pwEvent("youtube_official_video_search_started", details: publicTrace.merging(PWDownloadLog.error(error)) { _, new in new })
+            return try await fetchAudio(track, source: 1, attempt: attempt, trace: publicTrace, progress: progress)
         }
     }
     private func fetchFallback(_ track: PWAudioTrack, original: Error, trace: [String: Any], progress: @escaping @MainActor (String) -> Void) async throws -> URL {

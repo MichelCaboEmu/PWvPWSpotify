@@ -9,6 +9,9 @@ For YouTube Music and YouTube jobs: confirmed YouTube publication → SoundCloud
 public website → Audius creator-enabled free download. The two fallback switches
 can disable their respective provider. SoundCloud is enabled by default. Choosing
 Audius directly still uses Audius directly; official Spotify mode remains separate.
+When Music finds no confirmed accessible recording, public YouTube video search
+also checks the artist's channel before moving to SoundCloud. Cookie consent and
+transport/extractor failures still keep their explicit pause behavior.
 
 An HTTP 403 from an audio transfer gets exactly two logical attempts, separated by
 three seconds, before switching provider. Consent, quotas, cancellation and an
