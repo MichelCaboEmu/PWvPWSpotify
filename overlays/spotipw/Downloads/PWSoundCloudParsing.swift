@@ -1,5 +1,11 @@
 import Foundation
 
+struct PWSoundCloudHTTPError: LocalizedError {
+    let stage: String
+    let status: Int
+    var errorDescription: String? { "SoundCloud : étape \(stage) refusée (HTTP \(status))." }
+}
+
 struct PWSoundCloudMatch {
     let candidate: PWAudioCandidate
     let transcodings: [(url: URL, protocolName: String)]

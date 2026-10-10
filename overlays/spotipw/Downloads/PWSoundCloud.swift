@@ -32,12 +32,14 @@ final class PWSoundCloud: NSObject, URLSessionTaskDelegate {
             "elapsed_ms": Int(Date().timeIntervalSince(started) * 1000), "content_type": http.mimeType ?? "unknown"]) { _, new in new })
         guard http.statusCode == 200 else {
             if http.statusCode == 429 { throw PWDownloadError(message: "SoundCloud limite les demandes (HTTP 429). Réessaie plus tard.", pausesQueue: true) }
-            throw PWAudioHTTPError(status: http.statusCode)
+            if stage == "playlist" { throw PWAudioHTTPError(status: http.statusCode) }
+            throw PWSoundCloudHTTPError(stage: stage, status: http.statusCode)
         }
         var bytes = Data()
         for try await byte in stream {
             guard bytes.count < maximum else { throw pwError("Réponse SoundCloud trop volumineuse.") }
             bytes.append(byte)
+            if bytes.count % 65536 == 0 { try Task.checkCancellation(); await Task.yield() }
         }
         try Task.checkCancellation()
         return bytes
@@ -62,7 +64,7 @@ final class PWSoundCloud: NSObject, URLSessionTaskDelegate {
                 let bytes = try await data(endpoint, session: session, stage: stage, trace: trace, maximum: 4 * 1024 * 1024)
                 guard let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] else { throw pwError("Réponse JSON SoundCloud invalide.") }
                 return object
-            } catch let error as PWAudioHTTPError where error.status == 401 && attempt == 1 {
+            } catch let error as PWSoundCloudHTTPError where error.status == 401 && attempt == 1 {
                 // Refresh only an expired public website configuration. A 403,
                 // challenge or login wall is reported; no fingerprint evasion.
                 cachedClient = nil; pwEvent("soundcloud_public_configuration_expired", 401, details: trace)

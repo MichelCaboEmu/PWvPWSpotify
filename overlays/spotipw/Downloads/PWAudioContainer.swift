@@ -7,8 +7,8 @@ import AudioToolbox
 // audio file. Copy AAC packets into a fresh M4A and validate that result. Never
 // divide an estimated duration by two or remove a duration check to accept it.
 enum PWAudioContainer {
-    private static func error(_ message: String) -> NSError {
-        NSError(domain: "PWAudioContainer", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    private static func error(_ message: String, code: Int = 1) -> NSError {
+        NSError(domain: "PWAudioContainer", code: code, userInfo: [NSLocalizedDescriptionKey: message])
     }
     static func normalize(_ source: URL, expectedDuration: Double,
                           report: @Sendable (String, [String: Any]) -> Void = { _, _ in }) async throws -> URL {
@@ -100,7 +100,7 @@ enum PWAudioContainer {
         let tolerance = max(8, expectedDuration * 0.05)
         guard packetDuration.isFinite, abs(packetDuration - expectedDuration) <= tolerance,
               abs(timelineDuration - packetDuration) <= 0.25 else {
-            throw error(String(format: "Durée audio différente : %.2f s de paquets reçus, %.2f s attendues. Aucun fichier enregistré.", packetDuration, expectedDuration))
+            throw error(String(format: "Durée audio différente : %.2f s de paquets reçus, %.2f s attendues. Aucun fichier enregistré.", packetDuration, expectedDuration), code: 2)
         }
         input.markAsFinished()
         writer.endSession(atSourceTime: end)
@@ -117,7 +117,7 @@ enum PWAudioContainer {
         guard audio.count == 1, bytes > 1024, bytes <= 128 * 1024 * 1024,
               actualDuration.isFinite, abs(actualDuration - expectedDuration) <= tolerance,
               abs(actualDuration - packetDuration) <= 0.25 else {
-            throw error(String(format: "Le M4A préparé reste incohérent : %.2f s, contre %.2f s attendues. Aucun fichier enregistré.", actualDuration, expectedDuration))
+            throw error(String(format: "Le M4A préparé reste incohérent : %.2f s, contre %.2f s attendues. Aucun fichier enregistré.", actualDuration, expectedDuration), code: 2)
         }
         try Task.checkCancellation()
         succeeded = true

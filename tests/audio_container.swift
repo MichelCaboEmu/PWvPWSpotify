@@ -66,7 +66,10 @@ import AudioToolbox
                 let wrong = try await PWAudioContainer.normalize(source, expectedDuration: 24)
                 try? FileManager.default.removeItem(at: wrong)
                 fatalError("FAIL: a real duration mismatch must not be accepted by dividing by two")
-            } catch { check(true, "wrong song duration still rejected") }
+            } catch {
+                let failure = error as NSError
+                check(failure.domain == "PWAudioContainer" && failure.code == 2, "wrong song duration has the unavailable-recording code used by fallback")
+            }
         }
         let corrupt = root.appendingPathComponent("corrupt.m4a")
         try Data(repeating: 0, count: 4096).write(to: corrupt)

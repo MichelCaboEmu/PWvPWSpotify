@@ -680,6 +680,11 @@ final class PWDownloadStore {
             }
         } catch {
             pwEvent("audio_container_failed", (error as NSError).code, details: trace.merging(PWDownloadLog.error(error)) { _, new in new })
+            try Task.checkCancellation()
+            if PWRecordingPolicy.unavailableYouTubeContainer(error) {
+                throw PWDownloadError(message: "YouTube n’a pas fourni l’enregistrement complet attendu. " + error.localizedDescription,
+                    fallbackEligible: true)
+            }
             throw error
         }
     }

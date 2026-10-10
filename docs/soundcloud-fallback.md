@@ -48,6 +48,9 @@ saying “official” is insufficient. Unlabelled extra titles and named altered
 versions (instrumental, cover, pitch, reverb, sped/slowed, etc.) are rejected.
 An inaccessible confirmed publication or no compatible full stream can trigger
 SoundCloud, rather than choosing an unofficial substitute.
+A duration mismatch confirmed from the actual audio packets also triggers the
+fallback. This covers a provider returning only a preview despite advertising
+the full song's duration. Unrelated container/write failures retain their errors.
 
 SoundCloud requires matching artist/title/version/duration and either matching
 Spotify ISRC or the artist's verified profile. A conflicting ISRC is rejected.
@@ -57,6 +60,8 @@ tracks, paid/high-quality-only streams, encryption, DRM, login walls and unsuppo
 HLS layouts fail clearly. No CAPTCHA or anti-bot evasion is implemented. An expired
 website configuration is refreshed once on HTTP 401; HTTP 403 does not cause an
 identity, account or fingerprint change.
+Search/configuration HTTP errors identify their stage and are distinguished from
+audio 403 errors; the three-second media retry does not retry a website challenge.
 
 HLS manifests must be finite and match the requested duration. Segment URLs stay
 on SoundCloud's HTTPS media CDN, with byte/segment/time limits and cancellation.
