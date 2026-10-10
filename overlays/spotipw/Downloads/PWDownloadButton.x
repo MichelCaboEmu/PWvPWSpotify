@@ -71,6 +71,7 @@ static void show(UIView *button,NSDictionary *context) {
 UIView *PWDownloadControl(UIView *root,id model) {
     if(!PWDownloadsEnabled())return nil;
     NSDictionary *context=contextFor(model);
+    if(!context)return nil;
     __block UIView *found=nil;
     SGForEachView(root,^(UIView *view){if(!found&&[view.accessibilityIdentifier hasPrefix:@"DownloadButton.Granular."])found=view;});
     // Keep Spotify's control whenever it exists. Some free-tier headers omit it entirely.
@@ -94,6 +95,7 @@ void PWPrepareNativeDownloads(UIView *row) {
     if(!PWDownloadsEnabled())return;
     id model=modelFor(row);if(!model)return;
     UIView *button=PWDownloadControl(row,model);
+    if(!button)return;
     if(!button.superview&&[row isKindOfClass:UIStackView.class]){
         [(UIStackView *)row addArrangedSubview:button];
         [button.widthAnchor constraintEqualToConstant:44].active=YES;
@@ -129,7 +131,10 @@ static UIView *PWIdentified(UIView *root, NSString *name);
 @end
 @implementation PWOfflineRowTap
 - (void)activate:(UITapGestureRecognizer *)recognizer {
-    if(recognizer.state==UIGestureRecognizerStateRecognized)PWSelectOfflineRow(self.cell);
+    if(recognizer.state==UIGestureRecognizerStateRecognized){
+        PWEventDetails(@"download",@"playlist_offline_row_tap",0,@{@"cell_class":NSStringFromClass(self.cell.class)});
+        PWSelectOfflineRow(self.cell);
+    }
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)recognizer shouldReceiveTouch:(UITouch *)touch {
     if(!PWDownloadsEnabled() || ![PWDownloadsBridge offlinePlaylistEnabled] || !contextFor(modelFor(self.cell)))return NO;

@@ -8,7 +8,7 @@ actor PWNativeFileImport {
     private struct Record: Codable {
         var filename: String; var source: String; var size: Int; var modified: Date
         var uri: String; var title: String; var artist: String; var album: String; var duration: Double
-        var canonical: Bool?; var legacyBackup: String?
+        var canonical: Bool?; var legacyBackup: String?; var legacyFilename: String?
     }
     private var records: [String: Record]?
     private var support: URL { FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("PWDownloads") }
@@ -35,8 +35,10 @@ actor PWNativeFileImport {
         try await PWNativeFolderScanner.register(root: location.root, directory: location.file.deletingLastPathComponent())
         let fm = FileManager.default, modified = values.contentModificationDate ?? .distantPast
         let old = records?[entry.track.id]
-        if let saved = old, saved.canonical == true, saved.source == location.file.path,
-           saved.size == values.fileSize, saved.modified == modified { return descriptor(saved) }
+        if var saved = old, saved.canonical == true, saved.source == location.file.path,
+           saved.size == values.fileSize, saved.modified == modified {
+            try retireLegacy(&saved, id: entry.track.id); return descriptor(saved)
+        }
         var asset = AVURLAsset(url: location.file, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         var tags = try await asset.load(.commonMetadata)
         func text(_ key: AVMetadataKey, _ values: [AVMetadataItem]) async throws -> String {
@@ -55,27 +57,30 @@ actor PWNativeFileImport {
         let latest = try location.file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         var record = Record(filename: entry.filename, source: location.file.path, size: latest.fileSize ?? 0,
             modified: latest.contentModificationDate ?? modified, uri: uri, title: title, artist: artist, album: album,
-            duration: duration, canonical: true, legacyBackup: old?.legacyBackup)
+            duration: duration, canonical: true, legacyBackup: old?.legacyBackup,
+            legacyFilename: old?.canonical == true ? old?.legacyFilename : old?.filename)
         // Remove only a known import from the previous manifest, after folder
         // registration. Keep a reversible private backup until the native engine
         // confirms the canonical file path. Never delete user-created files.
-        if let old = old, old.canonical != true, PWLibraryCatalog.safeComponent(old.filename) {
-            let legacy = documents.appendingPathComponent(old.filename)
-            if legacy.standardizedFileURL != location.file.standardizedFileURL,
-               fm.fileExists(atPath: legacy.path), fm.contentsEqual(atPath: legacy.path, andPath: location.file.path) {
-                let folder = support.appendingPathComponent("legacy-import-backups", isDirectory: true)
-                try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-                let name = UUID().uuidString + ".m4a"
-                // Persist the backup name first, so interruption cannot lose its identity.
-                record.legacyBackup = name; records?[entry.track.id] = record; try persist()
-                try fm.moveItem(at: legacy, to: folder.appendingPathComponent(name))
-                pwEvent("native_flat_import_retired", details: ["retained_private_backup":true])
-            } else if fm.fileExists(atPath: legacy.path) {
-                pwEvent("native_flat_import_preserved", details: ["reason":"content_differs_or_same_path"])
-            }
-        }
+        try retireLegacy(&record, id: entry.track.id)
         records?[entry.track.id] = record; try persist()
         return descriptor(record)
+    }
+    private func retireLegacy(_ record: inout Record, id: String) throws {
+        guard let filename = record.legacyFilename, PWLibraryCatalog.safeComponent(filename) else { return }
+        let fm = FileManager.default, legacy = documents.appendingPathComponent(filename)
+        guard fm.fileExists(atPath: legacy.path) else { record.legacyFilename = nil; records?[id] = record; try persist(); return }
+        guard legacy.standardizedFileURL.path != URL(fileURLWithPath: record.source).standardizedFileURL.path,
+              fm.contentsEqual(atPath: legacy.path, andPath: record.source) else {
+            pwEvent("native_flat_import_preserved", details: ["reason":"content_differs_or_same_path"]); return
+        }
+        let folder = support.appendingPathComponent("legacy-import-backups", isDirectory: true)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let name = record.legacyBackup ?? UUID().uuidString + ".m4a"
+        record.legacyBackup = name; records?[id] = record; try persist()
+        try fm.moveItem(at: legacy, to: folder.appendingPathComponent(name))
+        record.legacyFilename = nil; records?[id] = record; try persist()
+        pwEvent("native_flat_import_retired", details: ["retained_private_backup":true])
     }
     func confirm(uri: String, filePath: String) {
         load()
@@ -84,7 +89,10 @@ actor PWNativeFileImport {
             var record = saved
             guard let name = record.legacyBackup, PWLibraryCatalog.safeComponent(name) else { continue }
             let backup = support.appendingPathComponent("legacy-import-backups").appendingPathComponent(name)
-            if FileManager.default.fileExists(atPath: record.source) { try? FileManager.default.removeItem(at: backup); record.legacyBackup = nil; records?[id] = record; try? persist() }
+            if FileManager.default.contentsEqual(atPath: backup.path, andPath: record.source) {
+                do { try FileManager.default.removeItem(at: backup); record.legacyBackup = nil; records?[id] = record; try persist() }
+                catch { pwEvent("native_import_cleanup_failed", details: PWDownloadLog.error(error)) }
+            }
         }
     }
     private func descriptor(_ record: Record) -> [String: Any] {
@@ -150,7 +158,9 @@ enum PWNativePlayback {
                     try await Task.sleep(nanoseconds: 500_000_000)
                     if state["uri"] as? String == target, state["playing"] as? Bool == true {
                         activePlaylist = playlistURI
-                        pwEvent("native_play_confirmed", details: ["playlist":title])
+                        pwEvent("native_play_confirmed", details: ["playlist":title,
+                            "playlist_context_preserved":playlistURI == nil || state["context"] as? String == playlistURI,
+                            "native_file_path_present": !(state["file_path"] as? String ?? "").isEmpty])
                         guard let presenter = presenter else { return }
                         let modal = presenter.navigationController ?? presenter
                         if playlistURI != nil { _ = handler?(["operation":"open_player"]) }

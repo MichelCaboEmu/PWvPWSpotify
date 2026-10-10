@@ -162,6 +162,12 @@ final class UIRegressionApp: UIResponder, UIApplicationDelegate {
         check(fixture.selected == IndexPath(row: 0, section: 1), "second section index unchanged")
         fixture.count = 5; actions.reloadData(); actions.layoutIfNeeded()
         check(actions.numberOfRows(inSection: 0) == 6, "asynchronous native actions retained")
+        fixture.count = 0; actions.reloadData(); actions.layoutIfNeeded()
+        check(actions.numberOfRows(inSection: 0) == 1 && actions.rectForRow(at: IndexPath(row: 0, section: 0)).height == 58, "empty native action list has a safe standalone download row")
+        fixture.count = 3
+        actions.delegate = fixture
+        _ = PWTrackMenuRows.install(on: actions, button: download, action: { downloads += 1 })
+        check(actions.delegate === adapter, "native delegate refresh reinstalls index translation")
         report("UI RUNNING: downloaded indicators")
         let label = UILabel(); label.font = .systemFont(ofSize: 14)
         let original = NSAttributedString(string: "Damso", attributes: [.font: label.font as Any, .foregroundColor: UIColor.gray])
