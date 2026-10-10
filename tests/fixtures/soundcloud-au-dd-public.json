@@ -1,0 +1,22 @@
+{
+  "id": 726423532,
+  "title": "Au DD",
+  "duration": 247222,
+  "full_duration": 247223,
+  "policy": "MONETIZE",
+  "sharing": "public",
+  "streamable": true,
+  "user": {"username": "PNL", "verified": true},
+  "publisher_metadata": {"artist": "PNL", "isrc": "QZS652246199"},
+  "media": {
+    "transcodings": [
+      {
+        "url": "https://api-v2.soundcloud.com/media/fixture/progressive",
+        "format": {"protocol": "progressive", "mime_type": "audio/mpeg"},
+        "quality": "sq",
+        "snipped": false,
+        "duration": 247223
+      }
+    ]
+  }
+}

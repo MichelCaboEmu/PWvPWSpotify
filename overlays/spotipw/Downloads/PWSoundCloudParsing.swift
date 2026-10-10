@@ -57,8 +57,12 @@ enum PWSoundCloudRules {
         let candidate = PWAudioCandidate(id: (row["id"] as? NSNumber)?.stringValue ?? "", title: row["title"] as? String ?? "",
             artist: artist, duration: (row["duration"] as? NSNumber)?.doubleValue ?? 0)
         var audio = candidate; audio.duration /= 1000
-        guard !audio.id.isEmpty, row["policy"] as? String == "ALLOW", row["streamable"] as? Bool == true,
+        guard !audio.id.isEmpty, row["streamable"] as? Bool == true,
               row["sharing"] as? String == "public" else { return (nil, "not_public_full_audio") }
+        // MONETIZE is also used by public, complete artist recordings. It is
+        // not a preview/subscription flag. Still require an unsnipped compatible
+        // stream and validate the actual downloaded duration before saving.
+        guard ["ALLOW", "MONETIZE"].contains(row["policy"] as? String ?? "") else { return (nil, "access_policy") }
         if let reason = PWRecordingPolicy.recordingRejection(audio, for: track) { return (nil, reason) }
         guard PWRecordingPolicy.artistMatches(artist, track.artist) else { return (nil, "artist_identity") }
         let expectedISRC = track.isrc?.uppercased().filter { $0.isLetter || $0.isNumber } ?? ""
@@ -79,6 +83,15 @@ enum PWSoundCloudRules {
         }.sorted { $0.protocolName == "progressive" && $1.protocolName != "progressive" }
         guard !streams.isEmpty else { return (nil, "no_public_mp3") }
         return (PWSoundCloudMatch(candidate: audio, transcodings: streams, evidence: matchingISRC ? "isrc" : "verified_artist"), "accepted")
+    }
+    static func noMatchMessage(candidates: Int, rejections: [String: Int]) -> String {
+        guard candidates > 0 else { return "SoundCloud : la recherche n’a renvoyé aucun titre. Aucun fichier enregistré." }
+        let labels = ["not_public_full_audio": "titre privé ou lecture indisponible", "access_policy": "accès bloqué ou limité à un extrait",
+                      "duration": "durée différente", "title": "titre différent", "title_extra": "titre ambigu", "version": "autre version",
+                      "artist": "artiste différent", "artist_identity": "identité de l’artiste différente", "isrc": "identifiant d’enregistrement différent",
+                      "provenance_unconfirmed": "provenance non confirmée", "no_public_mp3": "aucun flux MP3 complet compatible"]
+        let reasons = rejections.keys.sorted().map { "\(labels[$0] ?? "autre incompatibilité") : \(rejections[$0]!)" }.joined(separator: ", ")
+        return "SoundCloud : aucune correspondance compatible parmi \(candidates) titres. Motifs : \(reasons). Aucun fichier enregistré."
     }
     // Only finite, unencrypted MP3 media playlists. No keys, DRM, partial byte
     // ranges or remote files outside SoundCloud's media CDN are accepted.

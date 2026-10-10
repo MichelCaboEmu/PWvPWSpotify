@@ -93,6 +93,10 @@ final class PWSoundCloud: NSObject, URLSessionTaskDelegate {
                 let (match, reason) = PWSoundCloudRules.match(row, track: track)
                 pwEvent("soundcloud_candidate", details: searchTrace.merging([
                     "candidate_title": row["title"] as? String ?? "", "candidate_artist": (row["user"] as? [String: Any])?["username"] as? String ?? "",
+                    "candidate_publisher_artist": (row["publisher_metadata"] as? [String: Any])?["artist"] as? String ?? "",
+                    "candidate_policy": row["policy"] as? String ?? "missing", "candidate_duration": ((row["duration"] as? NSNumber)?.doubleValue ?? 0) / 1000,
+                    "uploader_verified": (row["user"] as? [String: Any])?["verified"] as? Bool ?? false,
+                    "stream_count": ((row["media"] as? [String: Any])?["transcodings"] as? [[String: Any]])?.count ?? 0,
                     "rejection": reason, "evidence": match?.evidence ?? "none"]) { _, new in new })
                 if let match = match { matches.append(match) } else { rejected[reason, default: 0] += 1 }
             }
@@ -100,7 +104,7 @@ final class PWSoundCloud: NSObject, URLSessionTaskDelegate {
         }
         pwEvent("soundcloud_search_results", matches.count, details: trace.merging([
             "candidates": seen.count, "rejections": rejected.keys.sorted().map { "\($0): \(rejected[$0]!)" }.joined(separator: ", ")]) { _, new in new })
-        guard !matches.isEmpty else { throw pwError("SoundCloud : aucune version complète et fiable trouvée. Les extraits, contenus payants, reprises et versions non confirmées sont écartés.") }
+        guard !matches.isEmpty else { throw pwError(PWSoundCloudRules.noMatchMessage(candidates: seen.count, rejections: rejected)) }
         matches.sort { left, right in
             if left.evidence != right.evidence { return left.evidence == "isrc" }
             return abs(left.candidate.duration - track.duration) < abs(right.candidate.duration - track.duration)

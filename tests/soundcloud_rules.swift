@@ -116,6 +116,22 @@ import Foundation
             "user": ["username": "PNL", "verified": true], "publisher_metadata": ["artist": "PNL", "isrc": track.isrc!],
             "media": ["transcodings": [transcode]]]
         check(PWSoundCloudRules.match(row, track: track).0?.evidence == "isrc", "same full recording accepted")
+        let fixture = try Data(contentsOf: URL(fileURLWithPath: "tests/fixtures/soundcloud-au-dd-public.json"))
+        var publicRow = try JSONSerialization.jsonObject(with: fixture) as! [String: Any]
+        let publicTrack = PWAudioTrack(id: "0123456789ABCDEFGHIJKL", title: "Au DD", artist: "PNL", duration: 247)
+        check(PWSoundCloudRules.match(publicRow, track: publicTrack).0?.evidence == "verified_artist", "observed MONETIZE public PNL recording accepted without ISRC from native Spotify model")
+        for policy in ["SNIP", "BLOCK", "SUB_HIGH_TIER", "unknown"] {
+            var blocked = publicRow; blocked["policy"] = policy
+            check(PWSoundCloudRules.match(blocked, track: publicTrack).1 == "access_policy", "public metadata cannot bypass restricted policy: " + policy)
+        }
+        var publicStream = (publicRow["media"] as! [String: Any])["transcodings"] as! [[String: Any]]
+        publicStream[0]["snipped"] = true; publicRow["media"] = ["transcodings": publicStream]
+        check(PWSoundCloudRules.match(publicRow, track: publicTrack).1 == "no_public_mp3", "MONETIZE preview still rejected")
+        publicStream[0]["snipped"] = false; publicStream[0]["quality"] = "hq"; publicRow["media"] = ["transcodings": publicStream]
+        check(PWSoundCloudRules.match(publicRow, track: publicTrack).1 == "no_public_mp3", "MONETIZE high-quality-only stream still rejected")
+        check(PWSoundCloudRules.noMatchMessage(candidates: 0, rejections: [:]).contains("aucun titre"), "empty search distinguished from rejected candidates")
+        let rejectionMessage = PWSoundCloudRules.noMatchMessage(candidates: 2, rejections: ["access_policy": 1, "provenance_unconfirmed": 1])
+        check(rejectionMessage.contains("parmi 2") && rejectionMessage.contains("provenance non confirmée : 1") && rejectionMessage.contains("limité à un extrait : 1"), "error explains actual candidate rejections")
         var rejected = row; rejected["policy"] = "SNIP"
         check(PWSoundCloudRules.match(rejected, track: track).0 == nil, "paid preview rejected")
         rejected = row; rejected["sharing"] = "private"

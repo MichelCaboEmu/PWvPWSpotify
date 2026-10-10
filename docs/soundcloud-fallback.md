@@ -56,7 +56,7 @@ the full song's duration. Unrelated container/write failures retain their errors
 
 SoundCloud requires matching artist/title/version/duration and either matching
 Spotify ISRC or the artist's verified profile. A conflicting ISRC is rejected.
-Only public, streamable `ALLOW` tracks and standard-quality complete MP3
+Only public, streamable `ALLOW` or `MONETIZE` tracks and standard-quality complete MP3
 progressive/unencrypted HLS transcodings are used. Previews, `SNIP`/`BLOCK`, private
 tracks, paid/high-quality-only streams, encryption, DRM, login walls and unsupported
 HLS layouts fail clearly. No CAPTCHA or anti-bot evasion is implemented. An expired
@@ -64,6 +64,12 @@ website configuration is refreshed once on HTTP 401; HTTP 403 does not cause an
 identity, account or fingerprint change.
 Search/configuration HTTP errors identify their stage and are distinguished from
 audio 403 errors; the three-second media retry does not retry a website challenge.
+`MONETIZE` alone does not mean subscriber-only: the public verified PNL “Au DD”
+recording observed on 2026-10-10 used that policy and exposed a complete unsnipped
+MP3 resolver and reachable media without an account. Preview/block policies remain
+rejected, and actual duration verification remains mandatory. No-match errors now
+distinguish empty search results from specific candidate rejection counts; logs
+include policy, duration, publisher artist, verification and stream count.
 
 HLS manifests must be finite and match the requested duration. Segment URLs stay
 on SoundCloud's HTTPS media CDN, with byte/segment/time limits and cancellation.
