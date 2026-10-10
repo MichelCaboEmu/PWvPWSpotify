@@ -1,7 +1,7 @@
 name: Verify and compile fusion
 on:
   push:
-    branches: [main]
+    branches: [main, ajout-de-soundcloud]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -50,6 +50,14 @@ jobs:
         run: |
           xcrun swiftc overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWLibraryCatalog.swift overlays/spotipw/Downloads/PWFolderIndex.swift overlays/spotipw/Downloads/PWMetadataRules.swift overlays/spotipw/Downloads/PWMediaRetry.swift overlays/spotipw/Downloads/PWAudiusPolicy.swift tests/library_catalog.swift -o /tmp/pw-library-tests
           /tmp/pw-library-tests
+      - name: Test official YouTube provenance and public SoundCloud selection
+        run: |
+          xcrun swiftc overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWRecordingPolicy.swift overlays/spotipw/Downloads/PWSoundCloudParsing.swift tests/soundcloud_rules.swift -o /tmp/pw-soundcloud-rules
+          /tmp/pw-soundcloud-rules
+      - name: Test native SoundCloud audio conversion and complete decoded recording
+        run: |
+          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos13.0" overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWRecordingPolicy.swift overlays/spotipw/Downloads/PWSoundCloudParsing.swift overlays/spotipw/Downloads/PWSoundCloud.swift overlays/spotipw/Downloads/PWAudioTransfer.swift overlays/spotipw/Downloads/PWYouTubeAccess.swift tests/soundcloud_audio.swift -o /tmp/pw-soundcloud-audio
+          /tmp/pw-soundcloud-audio tests/fixtures/soundcloud-mp3.b64
       - name: Test native local URI identity and finite Spotify queue payload
         run: |
           xcrun swiftc overlays/spotipw/Downloads/PWNativeLocalIdentity.swift tests/native_local_identity.swift -o /tmp/pw-native-local-tests

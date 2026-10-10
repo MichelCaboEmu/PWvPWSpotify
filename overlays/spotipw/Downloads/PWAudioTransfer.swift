@@ -27,12 +27,13 @@ final class PWAudioTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendab
     private let report: @Sendable (String, Int, [String: Any]) -> Void
     private let progress: @Sendable (Int64, Int64) -> Void
     private let timeout: TimeInterval
+    private let minimumBytes: Int64
 
-    init(timeout: TimeInterval = 120,
+    init(timeout: TimeInterval = 120, minimumBytes: Int64 = 1024,
          allowed: @escaping @Sendable (URL) -> Bool = { PWDownloadRules.mediaURL($0) },
          report: @escaping @Sendable (String, Int, [String: Any]) -> Void,
          progress: @escaping @Sendable (Int64, Int64) -> Void) {
-        self.timeout = timeout; self.allowed = allowed; self.report = report; self.progress = progress
+        self.timeout = timeout; self.minimumBytes = max(0, minimumBytes); self.allowed = allowed; self.report = report; self.progress = progress
     }
     // Only try alternate URLs already returned for this same video. No new
     // identity, account, proxy or repeated retry of a refused URL is introduced.
@@ -67,7 +68,7 @@ final class PWAudioTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendab
               total > 0, total <= maximumBytes, end == total - 1 else { return nil }
         return total
     }
-    func download(_ url: URL, soundCloudToken: String? = nil) async throws -> URL {
+    func download(_ url: URL) async throws -> URL {
         guard allowed(url) else { throw error("Adresse du flux audio non autorisée.") }
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
@@ -85,9 +86,6 @@ final class PWAudioTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendab
                 var request = URLRequest(url: url)
                 request.timeoutInterval = min(20, timeout)
                 request.httpShouldHandleCookies = false
-                if url.host == "api.soundcloud.com", let token = soundCloudToken {
-                    request.setValue("OAuth " + token, forHTTPHeaderField: "Authorization")
-                }
                 // Request the full byte range explicitly (audio servers may pace
                 // ordinary playback requests). Do not change signed URL values.
                 request.setValue("bytes=0-", forHTTPHeaderField: "Range")
@@ -163,7 +161,7 @@ final class PWAudioTransfer: NSObject, URLSessionDataDelegate, @unchecked Sendab
         do { try handle?.close() } catch { if failure == nil { failure = error } }
         handle = nil
         var terminal = failure ?? networkError
-        if terminal == nil, received <= 1024 || (expected >= 0 && received != expected) {
+        if terminal == nil, received <= minimumBytes || (expected >= 0 && received != expected) {
             terminal = error("Fichier audio incomplet : \(received) octets reçus, \(expected) attendus.")
         }
         if let terminal = terminal {

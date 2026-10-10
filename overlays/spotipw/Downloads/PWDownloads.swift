@@ -488,14 +488,8 @@ final class PWDownloadStore {
                 // for consent, quota, authentication or a cancelled task.
                 let missingMatch = (error as? PWDownloadError)?.fallbackEligible == true
                 let refusedMedia = (error as? PWAudioHTTPError).map { [403, 410].contains($0.status) } == true
-                guard missingMatch || refusedMedia,
-                      UserDefaults.standard.bool(forKey: "spotifyglass.download.audiusFallback") else { throw error }
-                pwEvent("audius_fallback_started", details: trace.merging(PWDownloadLog.error(error)) { _, new in new })
-                do { file = try await fetchAudius(track, trace: trace, progress: progress) }
-                catch let fallback {
-                    throw PWDownloadError(message: error.localizedDescription + "\nSecours Audius : " + fallback.localizedDescription,
-                        pausesQueue: (fallback as? PWDownloadError)?.pausesQueue ?? false)
-                }
+                guard missingMatch || refusedMedia else { throw error }
+                file = try await fetchFallback(track, original: error, trace: trace, progress: progress)
             }
         }
         // Basic tags are always written. External enrichment is explicit and
@@ -508,6 +502,38 @@ final class PWDownloadStore {
             if Task.isCancelled { try? FileManager.default.removeItem(at: file); throw error }
             pwEvent("basic_metadata_failed", details: PWDownloadLog.error(error)); return file
         }
+    }
+    private func fetchFallback(_ track: PWAudioTrack, original: Error, trace: [String: Any], progress: @escaping @MainActor (String) -> Void) async throws -> URL {
+        let order = PWFallbackPolicy.order(soundCloud: UserDefaults.standard.bool(forKey: "spotifyglass.download.soundcloudFallback"),
+                                           audius: UserDefaults.standard.bool(forKey: "spotifyglass.download.audiusFallback"))
+        guard !order.isEmpty else { throw original }
+        var messages = [original.localizedDescription]
+        for provider in order {
+            try Task.checkCancellation()
+            // Keep the playlist/job identity, but report the actual provider.
+            let fallbackTrace = trace.merging(["requested_source": trace["source"] ?? "youtube", "source": provider]) { _, new in new }
+            pwEvent(provider + "_fallback_started", details: fallbackTrace.merging(PWDownloadLog.error(original)) { _, new in new })
+            do {
+                if provider == "soundcloud" {
+                    return try await PWMediaRetry.run(operation: { attempt in
+                        try await PWSoundCloud.shared.download(track, trace: fallbackTrace.merging(["transfer_attempt": attempt]) { _, new in new }, progress: progress)
+                    }, forbidden: { ($0 as? PWAudioHTTPError)?.status == 403 }, waiting: {
+                        progress("Flux SoundCloud refusé : nouvelle tentative dans 3 secondes…")
+                        pwEvent("soundcloud_403_retry_scheduled", 403, details: fallbackTrace.merging(["delay_seconds": 3, "next_attempt": 2]) { _, new in new })
+                    })
+                }
+                return try await fetchAudius(track, trace: fallbackTrace, progress: progress)
+            } catch {
+                try Task.checkCancellation()
+                if (error as? URLError)?.code == .cancelled { throw error }
+                messages.append("Secours \(provider == "soundcloud" ? "SoundCloud" : "Audius") : " + error.localizedDescription)
+                pwEvent(provider + "_fallback_failed", details: fallbackTrace.merging(PWDownloadLog.error(error)) { _, new in new })
+                if (error as? PWDownloadError)?.pausesQueue == true || (error as? URLError)?.code == .timedOut {
+                    throw PWDownloadError(message: messages.joined(separator: "\n"), pausesQueue: true)
+                }
+            }
+        }
+        throw PWDownloadError(message: messages.joined(separator: "\n"))
     }
     private func fetchAudio(_ track: PWAudioTrack, source: Int, attempt: Int, trace: [String: Any], progress: @escaping @MainActor (String) -> Void) async throws -> URL {
         try Task.checkCancellation()
@@ -552,28 +578,31 @@ final class PWDownloadStore {
             var counts: [String: Any] = ["candidates": parsed.count, "renderers": PWDownloadRules.rendererCounts(json)]
             var rejected: [String: Int] = [:]
             for candidate in parsed {
-                if let reason = PWDownloadRules.rejection(candidate, for: track) {
+                if let reason = PWRecordingPolicy.youtubeRejection(candidate, for: track) {
                     rejected[reason, default: 0] += 1
                     if allResults.insert(candidate.id).inserted { rejections[reason, default: 0] += 1 }
                 }
             }
             for (reason, count) in rejected { counts["reject_" + reason] = count }
             let candidates = parsed.compactMap { candidate -> (PWAudioCandidate, Int)? in
-                PWDownloadRules.score(candidate, for: track).map { (candidate, $0) }
+                guard PWRecordingPolicy.youtubeRejection(candidate, for: track) == nil else { return nil }
+                return PWDownloadRules.score(candidate, for: track).map { (candidate, $0) }
             }.sorted { $0.1 > $1.1 }
             counts["accepted"] = candidates.count
             pwEvent("search_results", details: searchTrace.merging(counts) { _, new in new })
             for candidate in parsed.prefix(5) {
                 pwEvent("search_candidate", details: searchTrace.merging(["candidate_title": candidate.title,
                     "candidate_artist": candidate.artist, "candidate_duration": candidate.duration,
-                    "rejection": PWDownloadRules.rejection(candidate, for: track) ?? "accepted"]) { _, new in new })
+                    "official_evidence": candidate.youtubeEvidence,
+                    "rejection": PWRecordingPolicy.youtubeRejection(candidate, for: track) ?? "accepted"]) { _, new in new })
             }
             if let candidate = candidates.first?.0 { chosen = candidate; break }
         }
         guard let candidate = chosen else {
             if allResults.isEmpty { throw PWDownloadError(message: "Aucun résultat audio reconnu après \(plan.count) recherches dans \(isMusic ? "YouTube Music" : "YouTube"). Essaie l’autre source. Les détails sont dans les logs.", fallbackEligible: true) }
             let labels = ["identifier": "identifiant invalide", "missing_duration": "durée absente",
-                "duration": "durée différente", "title": "titre différent", "artist": "artiste différent", "version": "autre version"]
+                "duration": "durée différente", "title": "titre différent", "artist": "artiste différent", "version": "autre version",
+                "title_extra": "titre ambigu", "artist_identity": "identité de l’artiste non confirmée", "official_unconfirmed": "publication officielle non confirmée"]
             let reasons = rejections.keys.sorted().map { "\(labels[$0] ?? $0) : \(rejections[$0]!)" }.joined(separator: ", ")
             throw PWDownloadError(message: "Aucune correspondance sûre parmi \(allResults.count) résultats distincts après \(plan.count) recherches pour « \(track.title) » — \(track.artist). Motifs : \(reasons). Essaie l’autre source ; les logs détaillent chaque recherche.", fallbackEligible: true)
         }
@@ -589,17 +618,29 @@ final class PWDownloadStore {
             if (error as? URLError)?.code == .cancelled { throw error }
             let reason = (error as? YouTubeKitError)?.rawValue ?? PWDownloadLog.clean(error.localizedDescription)
             pwEvent("local_extraction_failed", (error as NSError).code, details: trace.merging(PWDownloadLog.error(error)) { _, new in new }.merging(["extractor_error": reason]) { _, new in new })
-            throw PWDownloadError(message: "Extraction YouTube impossible : \(reason). La file est en pause ; les logs contiennent l’erreur d’origine.", pausesQueue: true)
+            let unavailable = (error as? YouTubeKitError).map {
+                [YouTubeKitError.videoUnavailable, .recordingUnavailable, .membersOnly, .videoPrivate, .videoRegionBlocked, .videoAgeRestricted].contains($0)
+            } == true
+            throw PWDownloadError(message: "Extraction YouTube impossible : \(reason). " + (unavailable ? "Cette version n’est pas accessible ; recherche dans les sources de secours." : "La file est en pause ; les logs contiennent l’erreur d’origine."),
+                pausesQueue: !unavailable, fallbackEligible: unavailable)
         }
         try Task.checkCancellation()
         pwEvent("extraction_finished", streams.count, details: trace)
+        if PWRecordingPolicy.youtubeDescriptionRequired(candidate) {
+            let metadata = try await video.metadata
+            guard let metadata = metadata, PWRecordingPolicy.distributedDescription(metadata.description) else {
+                pwEvent("youtube_official_provenance_rejected", details: trace.merging(["official_evidence": candidate.youtubeEvidence]) { _, new in new })
+                throw PWDownloadError(message: "YouTube : l’origine officielle de cette publication n’a pas pu être confirmée. Recherche dans les sources de secours.", fallbackEligible: true)
+            }
+        }
+        pwEvent("youtube_official_provenance_accepted", details: trace.merging(["official_evidence": candidate.youtubeEvidence]) { _, new in new })
         progress("Téléchargement du fichier audio…")
         let compatible = streams.filterAudioOnly().filter { $0.fileExtension == .m4a && PWDownloadRules.mediaURL($0.url) }
         let ordered = compatible.enumerated().sorted {
             let left = $0.element.bitrate ?? 0, right = $1.element.bitrate ?? 0
             return left == right ? $0.offset < $1.offset : left > right
         }.map { $0.element }
-        guard !ordered.isEmpty else { throw pwError("Aucun flux M4A compatible accessible sur cet iPhone.") }
+        guard !ordered.isEmpty else { throw PWDownloadError(message: "Aucun flux M4A complet de cette version officielle n’est accessible sur cet iPhone.", fallbackEligible: true) }
         pwEvent("audio_download_started", details: trace.merging(["timeout_seconds": 120, "range_requested": true,
             "available_streams": ordered.count]) { _, new in new })
         let file: URL
@@ -649,7 +690,8 @@ final class PWDownloadsBridge: NSObject, UIDocumentPickerDelegate {
         pwEvent("library_snapshot", library.catalog.entries.count, details: ["playlists": library.catalog.playlists.count,
             "metadata_status": library.metadataStatus, "metadata_active": library.metadataTask != nil,
             "metadata_errors": library.catalog.entries.values.filter { $0.metadataError != nil }.count,
-            "audius_fallback": UserDefaults.standard.bool(forKey: "spotifyglass.download.audiusFallback")])
+            "audius_fallback": UserDefaults.standard.bool(forKey: "spotifyglass.download.audiusFallback"),
+            "soundcloud_fallback": UserDefaults.standard.bool(forKey: "spotifyglass.download.soundcloudFallback")])
         for entry in library.catalog.entries.values.filter({ $0.metadataError != nil }).prefix(10) {
             pwEvent("metadata_error_snapshot", details: ["title": entry.track.title, "message": entry.metadataError ?? ""])
         }

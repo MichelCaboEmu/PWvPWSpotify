@@ -23,6 +23,9 @@ struct PWAudioCandidate {
     var title: String
     var artist: String
     var duration: Double
+    // Assigned from provider-controlled renderer metadata, never from a title
+    // merely containing the word "official".
+    var youtubeEvidence = ""
 }
 
 struct PWSearchAttempt {
@@ -217,19 +220,29 @@ enum PWDownloadRules {
                     let fixed = item["fixedColumns"] as? [[String: Any]] ?? []
                     let fixedDuration = fixed.map { durationText(text(nested($0, ["musicResponsiveListItemFixedColumnRenderer", "text"]))) }.first { $0 > 0 } ?? 0
                     let details = fields.dropFirst().joined(separator: " • ")
-                    result.append(PWAudioCandidate(id: id, title: title, artist: details,
-                        duration: fixedDuration > 0 ? fixedDuration : durationText(details)))
+                    var candidate = PWAudioCandidate(id: id, title: title, artist: details,
+                        duration: fixedDuration > 0 ? fixedDuration : durationText(details))
+                    candidate.youtubeEvidence = musicEvidence(item)
+                    result.append(candidate)
                 }
                 return
             }
             if music, let item = dict["musicCardShelfRenderer"] as? [String: Any],
                let id = nested(item, ["onTap", "watchEndpoint", "videoId"]) as? String {
                 let details = text(item["subtitle"])
-                result.append(PWAudioCandidate(id: id, title: text(item["title"]), artist: details, duration: durationText(details)))
+                var candidate = PWAudioCandidate(id: id, title: text(item["title"]), artist: details, duration: durationText(details))
+                candidate.youtubeEvidence = musicEvidence(item)
+                result.append(candidate)
                 // Also inspect the shelf's extra rows.
             }
             if !music, let item = dict["videoRenderer"] as? [String: Any], let id = item["videoId"] as? String {
-                result.append(PWAudioCandidate(id: id, title: text(item["title"]), artist: text(item["ownerText"] ?? item["longBylineText"] ?? item["shortBylineText"]), duration: durationText(text(item["lengthText"]))))
+                var candidate = PWAudioCandidate(id: id, title: text(item["title"]), artist: text(item["ownerText"] ?? item["longBylineText"] ?? item["shortBylineText"]), duration: durationText(text(item["lengthText"])))
+                let badges = item["ownerBadges"] as? [[String: Any]] ?? []
+                let styles = badges.compactMap { nested($0, ["metadataBadgeRenderer", "style"]) as? String }
+                if styles.contains("BADGE_STYLE_TYPE_VERIFIED_ARTIST") { candidate.youtubeEvidence = "verified_artist" }
+                else if styles.contains("BADGE_STYLE_TYPE_VERIFIED") { candidate.youtubeEvidence = "verified_channel" }
+                else if candidate.artist.hasSuffix(" - Topic") { candidate.youtubeEvidence = "topic_pending" }
+                result.append(candidate)
                 return
             }
             for key in dict.keys.sorted() { walk(dict[key]!, depth: depth + 1) }
@@ -241,6 +254,20 @@ enum PWDownloadRules {
             if resultByID[item.id] == nil || (resultByID[item.id]!.duration == 0 && item.duration > 0) { resultByID[item.id] = item }
         }
         return order.compactMap { resultByID[$0] }
+    }
+    private static func musicEvidence(_ item: [String: Any]) -> String {
+        // Both song rows and top-result shelves carry the endpoint type. ATV is
+        // YouTube's distributed audio recording; UGC is not official evidence.
+        var atv = false
+        func walk(_ value: Any, _ depth: Int) {
+            guard depth < 18 else { return }
+            if let object = value as? [String: Any] {
+                if object["musicVideoType"] as? String == "MUSIC_VIDEO_TYPE_ATV" { atv = true }
+                for (key, child) in object where !["menu", "contents"].contains(key) { walk(child, depth + 1) }
+            } else if let array = value as? [Any] { for child in array { walk(child, depth + 1) } }
+        }
+        walk(item, 0)
+        return atv ? "distributed_audio_pending" : ""
     }
     static func tracks(_ items: [[String: Any]]) -> [PWAudioTrack] {
         items.compactMap { item in
@@ -274,7 +301,7 @@ enum PWDownloadLog {
         var value = text
         for pattern in [#"(?i)(?:https?|file)://[^\s\"<>]+"#,
                         #"(?i)(?:Bearer|OAuth)\s+[^\s,;\"]+"#,
-                        #"(?i)(?:access_token|refresh_token|authorization|cookie|SOCS|CONSENT)["']?\s*[:=]\s*["']?[^\s,;"'}]+"#] {
+                        #"(?i)(?:client_id|track_authorization|access_token|refresh_token|authorization|cookie|SOCS|CONSENT)["']?\s*[:=]\s*["']?[^\s,;"'}]+"#] {
             value = value.replacingOccurrences(of: pattern, with: "[redacted]", options: .regularExpression)
         }
         return String(value.prefix(800))
@@ -282,7 +309,7 @@ enum PWDownloadLog {
     static func fields(_ details: [String: Any]) -> [String: Any] {
         var result: [String: Any] = [:]
         for (key, value) in details.prefix(40) {
-            guard !["authorization", "cookie", "set-cookie", "access_token", "refresh_token", "url", "headers", "body"].contains(key.lowercased()) else { continue }
+            guard !["client_id", "track_authorization", "authorization", "cookie", "set-cookie", "access_token", "refresh_token", "url", "headers", "body"].contains(key.lowercased()) else { continue }
             if let text = value as? String { result[key] = clean(text) }
             else if let number = value as? NSNumber, number.doubleValue.isFinite { result[key] = number }
         }

@@ -227,7 +227,7 @@ static void PWApplyTrackRow(UIView *cell) {
 %end
 %ctor {
     %init;
-    [NSUserDefaults.standardUserDefaults registerDefaults:@{@"spotifyglass.download.audiusFallback":@YES}];
+    [NSUserDefaults.standardUserDefaults registerDefaults:@{@"spotifyglass.download.audiusFallback":@YES, @"spotifyglass.download.soundcloudFallback":@YES}];
     [NSNotificationCenter.defaultCenter addObserverForName:@"PWDownloadDiagnostic" object:nil queue:nil usingBlock:^(NSNotification *note){
         NSString *event=note.userInfo[@"event"];
         if([event isKindOfClass:NSString.class]) {
