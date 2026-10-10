@@ -8,6 +8,26 @@ final class NativeRowFixtureTable: UITableView {
 }
 
 @MainActor
+final class NativeMenuFixture: NSObject, UITableViewDataSource, UITableViewDelegate {
+    var count = 3
+    var selected: IndexPath?
+    var rendered: [Int] = []
+    func numberOfSections(in tableView: UITableView) -> Int { 2 }
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { section == 0 ? count : 1 }
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat { 56 }
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat { .leastNormalMagnitude }
+    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat { .leastNormalMagnitude }
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        rendered.append(indexPath.row)
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        let icon = UIImageView(image: UIImage(systemName: "square.and.arrow.up")); icon.frame = CGRect(x: 16, y: 16, width: 24, height: 24)
+        let label = UILabel(frame: CGRect(x: 54, y: 14, width: 200, height: 28)); label.text = "Action \(indexPath.row)"; label.font = .systemFont(ofSize: 18)
+        cell.contentView.addSubview(icon); cell.contentView.addSubview(label); return cell
+    }
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) { selected = indexPath }
+}
+
+@MainActor
 @main
 final class UIRegressionApp: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
@@ -115,6 +135,33 @@ final class UIRegressionApp: UIResponder, UIApplicationDelegate {
         check(!PWTrackMenuLayout.compact(table: table, in: root), "stable layout does not continually invalidate itself")
         let foreign = UITableView(); let before = root.constraints.count
         check(!PWTrackMenuLayout.compact(table: foreign, in: root) && root.constraints.count == before, "unrelated tables untouched")
+        report("UI RUNNING: actual action row, tall sheet and native selection mapping")
+        let actions = UITableView(frame: CGRect(x: 0, y: 0, width: 393, height: 800), style: .plain)
+        let fixture = NativeMenuFixture(); actions.dataSource = fixture; actions.delegate = fixture
+        actions.tableHeaderView = UIView(frame: CGRect(x: 0, y: 0, width: 393, height: 900))
+        let download = UIButton(type: .system)
+        var config = UIButton.Configuration.plain(); config.title = "Télécharger ce titre"; config.image = UIImage(systemName: "arrow.down.circle"); download.configuration = config
+        var downloads = 0
+        let adapter = PWTrackMenuRows.install(on: actions, button: download, action: { downloads += 1 })!
+        window?.rootViewController?.view.addSubview(actions)
+        actions.layoutIfNeeded()
+        check(actions.tableHeaderView == nil, "empty stretched header is absent from actual row layout")
+        check(actions.numberOfRows(inSection: 0) == 4 && actions.numberOfRows(inSection: 1) == 1, "one injected row, other sections unchanged")
+        for height in [400.0, 800.0, 1200.0] {
+            actions.frame.size.height = height; actions.layoutIfNeeded(); adapter.align(in: actions)
+            let first = actions.rectForRow(at: IndexPath(row: 0, section: 0)), next = actions.rectForRow(at: IndexPath(row: 1, section: 0))
+            check(abs(next.minY - first.maxY) < 0.5, "no gap between Download and first native action in tall sheet")
+            check(first.height == 56, "download occupies native row height")
+            check(abs((download.configuration?.contentInsets.leading ?? 0) - 16) < 0.5, "download icon aligned with native icon")
+        }
+        adapter.tableView(actions, didSelectRowAt: IndexPath(row: 0, section: 0))
+        check(downloads == 1 && fixture.selected == nil, "download does not invoke the first native action")
+        adapter.tableView(actions, didSelectRowAt: IndexPath(row: 2, section: 0))
+        check(fixture.selected == IndexPath(row: 1, section: 0), "native action index remapped")
+        adapter.tableView(actions, didSelectRowAt: IndexPath(row: 0, section: 1))
+        check(fixture.selected == IndexPath(row: 0, section: 1), "second section index unchanged")
+        fixture.count = 5; actions.reloadData(); actions.layoutIfNeeded()
+        check(actions.numberOfRows(inSection: 0) == 6, "asynchronous native actions retained")
         report("UI RUNNING: downloaded indicators")
         let label = UILabel(); label.font = .systemFont(ofSize: 14)
         let original = NSAttributedString(string: "Damso", attributes: [.font: label.font as Any, .foregroundColor: UIColor.gray])

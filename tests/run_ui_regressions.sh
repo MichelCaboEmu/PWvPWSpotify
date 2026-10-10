@@ -6,7 +6,7 @@ mkdir -p "$APP"
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun swiftc -swift-version 5 -sdk "$SDK" -target "$(uname -m)-apple-ios16.0-simulator" \
   overlays/spotipw/Downloads/PWSpotifyVisuals.swift overlays/spotipw/Downloads/PWTrackMenuHeader.swift overlays/spotipw/Downloads/PWTrackMenuLayout.swift \
-  tests/ui_regressions.swift -o "$APP/PWUIRegression"
+  overlays/spotipw/Downloads/PWTrackMenuRows.swift tests/ui_regressions.swift -o "$APP/PWUIRegression"
 cat > "$APP/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict><key>CFBundleIdentifier</key><string>pw.ui.regression</string><key>CFBundleExecutable</key><string>PWUIRegression</string><key>CFBundleName</key><string>PWUIRegression</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string><key>CFBundleShortVersionString</key><string>1</string><key>LSRequiresIPhoneOS</key><true/><key>UIDeviceFamily</key><array><integer>1</integer></array><key>UILaunchScreen</key><dict/></dict></plist>

@@ -17,6 +17,8 @@
 - (id)playContext:(id)context options:(id)options;
 - (id)pause:(id)options;
 - (id)resume:(id)options;
+- (id)provideEsperantoTransport;
+- (id)callSingle:(NSString *)service method:(NSString *)method payload:(NSData *)payload onResponse:(void (^)(NSData *))callback;
 @end
 static __weak id<PWSpotifyLocalSettings> pw_localSettings;
 BOOL PWNativeLocalPlayback(void) { return [SGURIString(SGPlayerState().track.URI) hasPrefix:@"spotify:local:"]; }
@@ -45,7 +47,8 @@ BOOL PWNativeLocalPlayback(void) { return [SGURIString(SGPlayerState().track.URI
 - (void)playerStateDidChange:(SPTPlayerState *)state {
     [PWDownloadsBridge nativePlaybackState:@{@"uri":SGURIString(state.track.URI) ?: @"",
         @"context":SGURIString(state.contextURI) ?: @"",
-        @"playing":@(state.isPlaying && !state.isPaused), @"loading":@(state.isLoading)}];
+        @"playing":@(state.isPlaying && !state.isPaused), @"loading":@(state.isLoading),
+        @"file_path":state.track.metadata[@"local_file_path"] ?: @""}];
 }
 @end
 
@@ -61,6 +64,7 @@ static BOOL command(NSDictionary *request) {
         }
         if ([operation isEqualToString:@"open_player"]) return SGOpenSpotifyURI([NSURL URLWithString:@"spotify:now-playing"]);
         if ([operation isEqualToString:@"open_files"]) return SGOpenSpotifyURI([NSURL URLWithString:@"spotify:local-files"]);
+        if ([operation isEqualToString:@"open_library"]) return SGOpenSpotifyURI([NSURL URLWithString:@"spotify:collection"]);
         if ([operation isEqualToString:@"toggle"] && PWNativeLocalPlayback()) {
             id player=SGKaraokePlayer();
             if (![player respondsToSelector:@selector(pause:)] || ![player respondsToSelector:@selector(resume:)]) return NO;
@@ -93,6 +97,31 @@ static BOOL command(NSDictionary *request) {
         return NO;
     }
 }
+// Verified service getter, four-argument transport and protobuf in the supplied
+// executable. Register EACH playlist folder; do not assume recursive Documents
+// scanning, and do not create a root-level audio copy for the native scanner.
+%hook _TtC23Esperanto_EsperantoImpl20EsperantoServiceImpl
+- (id)provideEsperantoTransport {
+    id transport=%orig;
+    if ([transport respondsToSelector:@selector(callSingle:method:payload:onResponse:)]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [PWDownloadsBridge configureNativeFolderScanner:^(NSString *path, void (^completion)(NSData *)) {
+                NSData *payload=[PWDownloadsBridge nativeFolderPayload:path];
+                if (!payload) { completion(nil); return; }
+                __block id lifetime=nil;
+                __block BOOL finished=NO;
+                void (^finish)(NSData *)=^(NSData *response){
+                    dispatch_async(dispatch_get_main_queue(), ^{ if(finished)return; finished=YES; completion(response); lifetime=nil; });
+                };
+                lifetime=[transport callSingle:@"spotify.local_files_esperanto.proto.LocalFiles" method:@"AddFolder" payload:payload onResponse:finish];
+                if(!lifetime)finish(nil);
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,16*NSEC_PER_SEC),dispatch_get_main_queue(),^{finish(nil);});
+            }];
+        });
+    }
+    return transport;
+}
+%end
 %hook _TtC19LocalFiles_CoreImpl20LocalFilesAPIService
 - (id)provideLocalFilesSettingsModel {
     id model=%orig;

@@ -62,6 +62,10 @@ jobs:
         run: |
           xcrun swiftc overlays/spotipw/Downloads/PWSharedAudioFile.swift tests/shared_audio.swift -o /tmp/pw-shared-audio-tests
           /tmp/pw-shared-audio-tests
+      - name: Test native folder registration protocol
+        run: |
+          xcrun swiftc overlays/spotipw/Downloads/PWNativeFolderProtocol.swift tests/native_folder_protocol.swift -o /tmp/pw-native-folder-tests
+          /tmp/pw-native-folder-tests
       - name: Test audio transfer, progress, timeout and cancellation
         run: |
           xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos13.0" overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWYouTubeAccess.swift overlays/spotipw/Downloads/PWAudioTransfer.swift tests/audio_transfer.swift -o /tmp/pw-transfer-tests

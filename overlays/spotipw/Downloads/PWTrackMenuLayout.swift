@@ -13,7 +13,7 @@ enum PWTrackMenuLayout {
         return view.subviews.lazy.compactMap { find(id, in: $0) }.first
     }
     @discardableResult static func compact(table: UITableView, in root: UIView) -> Bool {
-        guard table.tableHeaderView is PWTrackMenuHeader, table.isDescendant(of: root) else { return false }
+        guard (table.tableHeaderView is PWTrackMenuHeader || PWTrackMenuRows.installed(on: table) != nil), table.isDescendant(of: root) else { return false }
         var changed = false
         if table.contentInsetAdjustmentBehavior != .never { table.contentInsetAdjustmentBehavior = .never; changed = true }
         if abs(table.contentInset.top) > 0.5 { var inset = table.contentInset; inset.top = 0; table.contentInset = inset; changed = true }
@@ -85,6 +85,10 @@ enum PWTrackMenuLayout {
         if table.numberOfSections > 0 {
             result["section_0_header"] = NSCoder.string(for: table.rectForHeader(inSection: 0))
             if table.numberOfRows(inSection: 0) > 0 { result["first_row"] = NSCoder.string(for: table.rectForRow(at: IndexPath(row: 0, section: 0))) }
+            if table.numberOfRows(inSection: 0) > 1 {
+                let first = table.rectForRow(at: IndexPath(row: 0, section: 0)), second = table.rectForRow(at: IndexPath(row: 1, section: 0))
+                result["next_row"] = NSCoder.string(for: second); result["action_gap"] = second.minY - first.maxY
+            }
         }
         return result
     }

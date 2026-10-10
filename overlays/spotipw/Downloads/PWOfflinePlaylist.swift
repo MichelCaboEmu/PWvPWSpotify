@@ -65,6 +65,8 @@ extension PWDownloadsBridge {
     static func nativeNetworkAllowed(_ allowed: Bool) { PWOfflinePlaylist.setNetworkAllowed(allowed) }
     @objc(offlinePlaylistEnabled)
     static func offlinePlaylistEnabled() -> Bool { PWOfflinePlaylist.enabled }
+    @objc(isOriginalPlaylistURI:)
+    static func isOriginalPlaylistURI(_ uri: String) -> Bool { PWDownloadRules.playlistPath(uri) != nil }
     @objc(observeOfflinePlaylistRow:)
     static func observeOfflinePlaylistRow(_ view: UIView) { PWOfflinePlaylist.observe(view) }
     @objc(playOfflinePlaylistFrom:model:uri:title:selected:)

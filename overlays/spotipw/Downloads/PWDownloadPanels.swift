@@ -19,8 +19,8 @@ extension PWDownloadsBridge {
     static func library(from presenter: UIViewController) {
         _ = PWDownloadStore.shared
         _ = PWNativePlayback.handler?(["operation":"enable"])
-        if PWNativePlayback.handler?(["operation":"open_files"]) != true {
-            PWLocalLibraryController.notice("Ouvre Bibliothèque → Fichiers locaux dans Spotify.", from: presenter)
+        if PWNativePlayback.handler?(["operation":"open_library"]) != true {
+            PWLocalLibraryController.notice("Ouvre la Bibliothèque Spotify, puis la playlist d’origine.", from: presenter)
         }
     }
     @objc(errorsFrom:)
@@ -111,8 +111,8 @@ extension PWDownloadsBridge {
             return view.subviews.compactMap { table($0, depth + 1) }.first
         }
         guard let rows = table(menu.view), rows.bounds.width > 0 else { return }
-        if let button = objc_getAssociatedObject(menu, &menuButtonKey) as? UIButton, button.isDescendant(of: rows) {
-            refreshTrackMenuHeader(rows); _ = PWTrackMenuLayout.compact(table: rows, in: menu.view); return
+        if let adapter = PWTrackMenuRows.installed(on: rows), rows.dataSource === adapter {
+            adapter.align(in: rows); _ = PWTrackMenuLayout.compact(table: rows, in: menu.view); return
         }
         let button = UIButton(type: .system)
         button.frame = CGRect(x: 0, y: 0, width: rows.bounds.width, height: 58)
@@ -128,11 +128,10 @@ extension PWDownloadsBridge {
             guard let menu = menu else { return }
             chooseSource(selection.track, from: menu, destination: selection.destination)
         }, for: .touchUpInside)
-        // Header is adjacent to the first action. Never append after Spotify's
-        // footer: it may be a screen-height spacer. Keep native header content.
-        let wrapper = PWTrackMenuHeader(prior: rows.tableHeaderView, button: button, width: rows.bounds.width)
-        rows.tableHeaderView = wrapper
-        objc_setAssociatedObject(menu, &menuButtonKey, button, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        guard PWTrackMenuRows.install(on: rows, button: button, action: { [weak menu] in
+            guard let menu = menu else { return }
+            chooseSource(selection.track, from: menu, destination: selection.destination)
+        }) != nil else { return }
         _ = PWTrackMenuLayout.compact(table: rows, in: menu.view)
         rows.invalidateIntrinsicContentSize()
         if objc_getAssociatedObject(menu, &menuLayoutLoggedKey) == nil {
@@ -147,6 +146,7 @@ extension PWDownloadsBridge {
     }
     @objc(refreshTrackMenuHeader:)
     static func refreshTrackMenuHeader(_ table: UITableView) {
+        PWTrackMenuRows.installed(on: table)?.align(in: table)
         guard let header = table.tableHeaderView as? PWTrackMenuHeader else { return }
         if header.resize(width: table.bounds.width, table: table) { table.tableHeaderView = header }
     }

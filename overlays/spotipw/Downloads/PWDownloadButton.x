@@ -34,7 +34,9 @@ static NSDictionary *contextFor(id model) {
     id url=objectGetter(model,@"playlistURL");
     NSString *uri=[url isKindOfClass:NSURL.class]?[url absoluteString]:([url isKindOfClass:NSString.class]?url:nil);
     id title=objectGetter(model,@"playlistName");
-    if(!uri.length)return nil;
+    // Local Files uses the same FTP view classes. Never apply playlist-only
+    // dimming or selection interception to that screen, albums or recommendations.
+    if(!uri.length || ![PWDownloadsBridge isOriginalPlaylistURI:uri])return nil;
     PWDownloadModelReference *reference = [PWDownloadModelReference new]; reference.model = model;
     return @{@"uri":uri,@"title":[title isKindOfClass:NSString.class]?title:@"Playlist",@"model":reference};
 }
@@ -118,7 +120,30 @@ static NSDictionary *PWPlayingTrackInfo(void) {
     PWRefreshMetadataSession(); return info;
 }
 static char kPlayingMenu;
-static char kTrackInfo, kTrackWatcher, kOfflineRowAlpha;
+static char kTrackInfo, kTrackWatcher, kOfflineRowAlpha, kOfflineTap, kRowAppearance, kOfflineInteraction;
+static BOOL PWSelectOfflineRow(UIView *cell);
+static UIView *PWIdentified(UIView *root, NSString *name);
+@interface PWOfflineRowTap : NSObject <UIGestureRecognizerDelegate>
+@property(nonatomic, weak) UIView *cell;
+- (void)activate:(UITapGestureRecognizer *)recognizer;
+@end
+@implementation PWOfflineRowTap
+- (void)activate:(UITapGestureRecognizer *)recognizer {
+    if(recognizer.state==UIGestureRecognizerStateRecognized)PWSelectOfflineRow(self.cell);
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)recognizer shouldReceiveTouch:(UITouch *)touch {
+    if(!PWDownloadsEnabled() || ![PWDownloadsBridge offlinePlaylistEnabled] || !contextFor(modelFor(self.cell)))return NO;
+    if(![self.cell.accessibilityIdentifier hasPrefix:@"Track.Row"] && !PWIdentified(self.cell,@"Track.Row.Content.Title"))return NO;
+    for(UIView *v=touch.view;v && v!=self.cell;v=v.superview){
+        if([v.accessibilityIdentifier hasPrefix:@"Components.UI.ContextMenuButton"] || [v.accessibilityIdentifier containsString:@"AddTo"] || [v.accessibilityIdentifier containsString:@"SaveButton"])return NO;
+    }
+    return YES;
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)recognizer shouldBeRequiredToFailByGestureRecognizer:(UIGestureRecognizer *)other {
+    // Win against row taps, but let scrolling/dragging retain their own gesture.
+    return [other isKindOfClass:UITapGestureRecognizer.class];
+}
+@end
 @interface PWTrackMenuWatcher : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic, weak) UIView *button;
 @end
@@ -136,7 +161,43 @@ static NSString *PWRowText(UIView *root) {
     SGForEachView(root, ^(UIView *view){if([view isKindOfClass:UILabel.class] && ((UILabel *)view).text.length) [texts addObject:((UILabel *)view).text];});
     return [texts componentsJoinedByString:@" "];
 }
+static void PWRestoreRowAppearance(UIView *cell) {
+    NSMapTable *old=objc_getAssociatedObject(cell,&kRowAppearance);
+    for(UIView *view in old.keyEnumerator){
+        NSDictionary *values=[old objectForKey:view]; view.alpha=[values[@"alpha"] doubleValue];
+        if([view isKindOfClass:UILabel.class]){
+            UILabel *label=(id)view;
+            if(values[@"attributed"] != NSNull.null)label.attributedText=values[@"attributed"];
+            else label.textColor=values[@"color"];
+        }
+    }
+    objc_setAssociatedObject(cell,&kRowAppearance,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+static void PWMakeDownloadedRowReadable(UIView *cell) {
+    // Native Spotify grays remote tracks offline before our file mapping runs.
+    // Lift that native disabled appearance ONLY for verified downloaded rows.
+    NSMapTable *old=[NSMapTable strongToStrongObjectsMapTable];
+    SGForEachView(cell,^(UIView *view){
+        if(![view isKindOfClass:UILabel.class] && ![view isKindOfClass:UIImageView.class])return;
+        NSMutableDictionary *values=[@{@"alpha":@(view.alpha)} mutableCopy];
+        if([view isKindOfClass:UILabel.class]){
+            UILabel *label=(id)view; values[@"color"]=label.textColor; values[@"attributed"]=label.attributedText ?: NSNull.null;
+            BOOL subtitle=NO;
+            for(UIView *v=view;v && v!=cell;v=v.superview)if([v.accessibilityIdentifier hasPrefix:@"Track.Row.Content.Subtitle"])subtitle=YES;
+            UIColor *color=subtitle?UIColor.secondaryLabelColor:UIColor.whiteColor;
+            if(label.attributedText.length){
+                NSMutableAttributedString *text=[label.attributedText mutableCopy];
+                [text addAttribute:NSForegroundColorAttributeName value:color range:NSMakeRange(0,text.length)];label.attributedText=text;
+            } else label.textColor=color;
+        }
+        [old setObject:values forKey:view];view.alpha=1;
+    });
+    objc_setAssociatedObject(cell,&kRowAppearance,old,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 static void PWApplyTrackRow(UIView *cell) {
+    PWRestoreRowAppearance(cell);
+    NSNumber *oldInteraction=objc_getAssociatedObject(cell,&kOfflineInteraction);
+    if(oldInteraction){cell.userInteractionEnabled=oldInteraction.boolValue;objc_setAssociatedObject(cell,&kOfflineInteraction,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     NSNumber *oldAlpha=objc_getAssociatedObject(cell,&kOfflineRowAlpha);
     if(oldAlpha){cell.alpha=oldAlpha.doubleValue;objc_setAssociatedObject(cell,&kOfflineRowAlpha,nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
     UIView *subtitleView=PWIdentified(cell,@"Track.Row.Content.Subtitle");
@@ -145,6 +206,12 @@ static void PWApplyTrackRow(UIView *cell) {
     if(!PWDownloadsEnabled()){[PWDownloadsBridge decorateDownloadSubtitle:subtitleView downloaded:NO];return;}
     id model=modelFor(cell); NSDictionary *context=contextFor(model);
     if(!context){[PWDownloadsBridge decorateDownloadSubtitle:subtitleView downloaded:NO];return;}
+    if(!objc_getAssociatedObject(cell,&kOfflineTap)){
+        PWOfflineRowTap *target=[PWOfflineRowTap new];target.cell=cell;
+        UITapGestureRecognizer *tap=[[UITapGestureRecognizer alloc] initWithTarget:target action:@selector(activate:)];
+        tap.delegate=target;tap.cancelsTouchesInView=YES;tap.delaysTouchesEnded=YES;
+        [cell addGestureRecognizer:tap];objc_setAssociatedObject(cell,&kOfflineTap,target,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
     NSString *title=PWRowText(PWIdentified(cell,@"Track.Row.Content.Title"));
     NSString *subtitle=PWRowText(PWIdentified(cell,@"Track.Row.Content.Subtitle"));
     if(!title.length || !subtitle.length){[PWDownloadsBridge decorateDownloadSubtitle:subtitleView downloaded:NO];return;}
@@ -161,12 +228,15 @@ static void PWApplyTrackRow(UIView *cell) {
             if([button isKindOfClass:UIControl.class])[(UIControl *)button addTarget:watcher action:@selector(tapped) forControlEvents:UIControlEventTouchUpInside|UIControlEventPrimaryActionTriggered];
         }
     }
-    [PWDownloadsBridge decorateDownloadSubtitle:subtitleView downloaded:[info[@"saved"] boolValue]];
     [PWDownloadsBridge observeOfflinePlaylistRow:cell];
-    if([PWDownloadsBridge offlinePlaylistEnabled] && ![info[@"saved"] boolValue]){
+    if([PWDownloadsBridge offlinePlaylistEnabled]){
+        objc_setAssociatedObject(cell,&kOfflineInteraction,@(cell.userInteractionEnabled),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        cell.userInteractionEnabled=YES; // our gesture blocks unavailable rows
         objc_setAssociatedObject(cell,&kOfflineRowAlpha,@(cell.alpha),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        cell.alpha=MIN(cell.alpha,0.42);
+        if([info[@"saved"] boolValue]){cell.alpha=1;PWMakeDownloadedRowReadable(cell);}
+        else cell.alpha=MIN(cell.alpha,0.42);
     }
+    [PWDownloadsBridge decorateDownloadSubtitle:subtitleView downloaded:[info[@"saved"] boolValue]];
 }
 
 static UIViewController *PWPlaylistPresenter(UIView *view) {
@@ -258,6 +328,12 @@ static BOOL PWSelectOfflineRow(UIView *cell) {
 }
 %end
 %hook _TtC35ListUXPlatform_FreeTierPlaylistImpl25ElementCollectionViewCell
+- (void)layoutSubviews {
+    %orig;
+    PWApplyTrackRow((UIView *)self);
+}
+%end
+%hook _TtC35ListUXPlatform_FreeTierPlaylistImpl20ElementTableViewCell
 - (void)layoutSubviews {
     %orig;
     PWApplyTrackRow((UIView *)self);

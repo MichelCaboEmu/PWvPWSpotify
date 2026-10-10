@@ -160,3 +160,49 @@ their bytes match; differently tagged files are retained. Metadata writers must
 replace files, never mutate shared audio in place. No assumption is made about
 recursive indexing. Physical iPhone validation is still required for the new
 playlist entry points and context URI.
+
+## Device regression 2026-10-10: root import and wrong tap entry point
+
+The user reports 65beae3 still uses Local Files, grays downloaded songs and shows
+an action gap. The prior delegate fixture was insufficient: disassembly of
+collection selection 0x107ed91f8 -> 0x1074ad228 shows only deselection, not the
+original playback command. Offline row taps now use a cell-owned gesture which
+cancels the native row tap, excluding the menu/save controls and allowing scroll.
+Only original playlist/Liked Songs URIs qualify; Local Files shares the same FTP
+cell classes but is expressly excluded. Available rows lift native remote-track
+dimming; unavailable rows are dimmed and blocked. Online behavior passes through.
+Native Library navigation now targets the verified `spotify:collection` route.
+No custom Library or player replaces Spotify's screens. The Library and playlist
+contents still depend on Spotify's own previously loaded cache; this cannot make
+an unseen cloud playlist available while disconnected.
+
+The binary exposes a native folder service: EsperantoServiceImpl's
+provideEsperantoTransport (0x10104495c) returns a bridge supporting
+callSingle:method:payload:onResponse: (0x1097d48d8, @48@0:8@16@24@32@?40).
+Its callback wraps response bytes as one NSData argument (0x1097d5038).
+Embedded es_local_files.proto (file offset 0xa1043cc) declares service
+spotify.local_files_esperanto.proto.LocalFiles, method AddFolder, Folder.path=1.
+MutateSourceResponse.result=1 enum: UNKNOWN=0, SUCCESS=1, NOT_FOUND=2,
+NOT_CHANGED=3. This confirms an API exists, not that iOS accepts every directory.
+The implementation requires an explicit accepted reply and keeps the command
+lifetime until callback/timeout. Every canonical playlist directory is registered;
+no new Documents-root import is made. External chosen roots remain security scoped.
+Existing manifest-owned root imports are moved to a private reversible backup
+only if their bytes equal the canonical file and folder registration succeeded.
+The backup is discarded only after native playback reports local_file_path equal
+to the canonical source. Nonidentical/user-created files are preserved and logged.
+Artwork now references the canonical playlist path, not a synthesized Documents
+filename. Indexing refusal or unconfirmed playback remains an explicit error;
+there is no silent fallback to creating another root file or another player.
+
+Download is now an actual UITableView action row. It no longer wraps
+ tableHeaderView. Index paths are translated for native actions; other sections,
+headers and footers remain native. An empty leading table spacer is discarded,
+real native controls are retained. UIKit tests exercise real rows in tall sheets,
+adjacency, icon coordinates, asynchronous action counts and selection mapping.
+The new protocol fixture tests UTF-8 varints and rejects ambiguous replies.
+Device logs include response result and action_gap between actual first rows.
+
+This remains a device-validation candidate: the native folder API, cache behavior,
+row recognizer ordering and playlist context resolution cannot be proven using
+standalone UIKit fixtures or compilation. Validate on Spotify 9.1.78/iOS 26.4.1.

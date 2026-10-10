@@ -64,12 +64,12 @@ SGModRow *PWDownloadsSettingsRow(void){
                 SGActionRow(@"Titres en erreur",@"Voir les causes complètes et réessayer",^{[PWDownloadsBridge errorsFrom:top()];}),
                 SGStatRow(@"Erreurs",^NSString *{return [PWDownloadsBridge errorSummary];})]),
             SGSection(@"Bibliothèque",@[
-                SGActionRow(@"Fichiers locaux Spotify",@"Ouvrir la bibliothèque native de Spotify",^{[PWDownloadsBridge libraryFrom:top()];}),
+                SGActionRow(@"Ouvrir mes playlists",@"Bibliothèque Spotify et playlists d’origine",^{[PWDownloadsBridge libraryFrom:top()];}),
                 SGActionRow(@"Mettre à jour les métadonnées",@"Pochette, titre, artiste, album et année",^{PWRefreshMetadataSession();[PWDownloadsBridge metadataFrom:top()];})]),
             SGSection(@"Source de secours",@[
                 SGSwitchRow(@"Audius en secours",@"Après deux refus 403 ou si aucun titre ne correspond",@"spotifyglass.download.audiusFallback"),
                 SGLinkRow(@"À propos d’Audius",@"Catalogue indépendant, téléchargements gratuits autorisés par les artistes",@"https://docs.audius.co/api/")])
-        ] footer:@"Les fichiers déjà présents sont réutilisés entre playlists. Refaire la flèche relit la liste et ajoute les titres manquants. Les fichiers restent disponibles après avoir vidé la file. Le lecteur hors ligne intégré utilise ces fichiers, séparément du cache Spotify. Audius ne nécessite pas de compte payant ; seuls les titres proposés gratuitement au téléchargement sont utilisés. Son catalogue est limité. Après un refus 403, une seconde tentative a lieu après 3 secondes, avant le secours. Le mode officiel conserve les conditions de Spotify. Garde l’app ouverte pendant les transferts. Redémarre après un changement de mode pour actualiser tous les boutons."];
+        ] footer:@"Les fichiers déjà présents sont réutilisés entre playlists. Refaire la flèche relit la liste et ajoute les titres manquants. Les fichiers restent disponibles après avoir vidé la file. Hors connexion, ouvre tes playlists d’origine dans la Bibliothèque Spotify. Le lecteur et la file d’attente natifs utilisent les titres téléchargés ; les autres restent indisponibles. Les playlists doivent avoir été chargées en ligne auparavant. Audius ne nécessite pas de compte payant ; seuls les titres proposés gratuitement au téléchargement sont utilisés. Son catalogue est limité. Après un refus 403, une seconde tentative a lieu après 3 secondes, avant le secours. Le mode officiel conserve les conditions de Spotify. Garde l’app ouverte pendant les transferts. Redémarre après un changement de mode pour actualiser tous les boutons."];
     }),@"arrow.down.circle");
 }
 SGModRow *PWGeniusSettingsRow(void){

@@ -7,27 +7,26 @@ import AVFoundation
 enum PWNativeArtwork {
     private static let lock = NSLock()
     private static let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    private static var files: [String: String] = {
+    private static var files: [String: URL] = {
         let manifest = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PWDownloads/native-import.json")
         guard let size = try? manifest.resourceValues(forKeys: [.fileSizeKey]).fileSize, size < 16 * 1024 * 1024,
               let data = try? Data(contentsOf: manifest), let records = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else { return [:] }
-        var result: [String: String] = [:]
+        var result: [String: URL] = [:]
         for record in records.values {
             if let uri = record["uri"] as? String, uri.hasPrefix("spotify:local:"),
-               let name = record["filename"] as? String, PWLibraryCatalog.safeComponent(name) { result[uri] = name }
+               let name = record["filename"] as? String, PWLibraryCatalog.safeComponent(name) { result[uri] = (record["canonical"] as? Bool == true && (record["source"] as? String)?.hasPrefix("/") == true) ? URL(fileURLWithPath: record["source"] as! String) : directory.appendingPathComponent(name) }
         }
         return result
     }()
-    static func register(uri: String, filename: String) {
-        guard uri.hasPrefix("spotify:local:"), PWLibraryCatalog.safeComponent(filename) else { return }
-        lock.lock(); files[uri] = filename; lock.unlock()
+    static func register(uri: String, file: URL) {
+        guard uri.hasPrefix("spotify:local:"), file.isFileURL else { return }
+        lock.lock(); files[uri] = file; lock.unlock()
     }
     static func file(for uri: String) -> URL? {
         guard uri.hasPrefix("spotify:local:") else { return nil }
-        lock.lock(); let name = files[uri]; lock.unlock()
-        guard let name = name else { return nil }
-        let file = directory.appendingPathComponent(name)
+        lock.lock(); let file = files[uri]; lock.unlock()
+        guard let file = file else { return nil }
         return FileManager.default.fileExists(atPath: file.path) ? file : nil
     }
 }
