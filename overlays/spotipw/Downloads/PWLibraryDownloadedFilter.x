@@ -3,11 +3,17 @@
 // Root view and legacy flow layout verified in the 9.1.78 executable.
 // UIKit compositional layouts are handled without altering native item counts.
 %hook _TtC28YourLibrary_YourLibraryXImpl15YourLibraryView
-- (void)layoutSubviews { %orig; [PWDownloadsBridge installDownloadedLibraryFilter:(UIView *)self]; }
+- (void)layoutSubviews {
+    %orig;
+    [PWDownloadsBridge installDownloadedLibraryFilter:(UIView *)self];
+}
 %end
 
 %hook UICollectionViewFlowLayout
-- (void)prepareLayout { %orig; [PWDownloadsBridge prepareDownloadedLibraryLayout:(id)self]; }
+- (void)prepareLayout {
+    %orig;
+    [PWDownloadsBridge prepareDownloadedLibraryLayout:(id)self];
+}
 - (NSArray *)layoutAttributesForElementsInRect:(CGRect)rect {
     if([PWDownloadsBridge downloadedLibraryLayoutActive:(id)self])return [PWDownloadsBridge downloadedLibraryElements:(id)self rect:rect];
     return %orig;
@@ -26,7 +32,10 @@
 }
 %end
 %hook _TtC21YourLibrary_CommonKit35YourLibraryCollectionViewFlowLayout
-- (void)prepareLayout { %orig; [PWDownloadsBridge prepareDownloadedLibraryLayout:(id)self]; }
+- (void)prepareLayout {
+    %orig;
+    [PWDownloadsBridge prepareDownloadedLibraryLayout:(id)self];
+}
 - (NSArray *)layoutAttributesForElementsInRect:(CGRect)rect {
     if([PWDownloadsBridge downloadedLibraryLayoutActive:(id)self])return [PWDownloadsBridge downloadedLibraryElements:(id)self rect:rect];
     return %orig;
@@ -37,7 +46,10 @@
 }
 %end
 %hook UICollectionViewCompositionalLayout
-- (void)prepareLayout { %orig; [PWDownloadsBridge prepareDownloadedLibraryLayout:(id)self]; }
+- (void)prepareLayout {
+    %orig;
+    [PWDownloadsBridge prepareDownloadedLibraryLayout:(id)self];
+}
 - (NSArray *)layoutAttributesForElementsInRect:(CGRect)rect {
     if([PWDownloadsBridge downloadedLibraryLayoutActive:(id)self])return [PWDownloadsBridge downloadedLibraryElements:(id)self rect:rect];
     return %orig;
@@ -55,4 +67,6 @@
     return %orig;
 }
 %end
-%ctor { %init; }
+%ctor {
+    %init;
+}
