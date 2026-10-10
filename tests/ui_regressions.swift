@@ -12,6 +12,7 @@ final class NativeMenuFixture: NSObject, UITableViewDataSource, UITableViewDeleg
     var count = 3
     var selected: IndexPath?
     var rendered: [Int] = []
+    var highlighted: IndexPath?
     func numberOfSections(in tableView: UITableView) -> Int { 2 }
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { section == 0 ? count : 1 }
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat { 56 }
@@ -25,6 +26,9 @@ final class NativeMenuFixture: NSObject, UITableViewDataSource, UITableViewDeleg
         cell.contentView.addSubview(icon); cell.contentView.addSubview(label); return cell
     }
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) { selected = indexPath }
+    func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
+        precondition(indexPath.row < (indexPath.section == 0 ? count : 1)); highlighted = indexPath; return true
+    }
 }
 
 @MainActor
@@ -158,6 +162,9 @@ final class UIRegressionApp: UIResponder, UIApplicationDelegate {
         check(downloads == 1 && fixture.selected == nil, "download does not invoke the first native action")
         adapter.tableView(actions, didSelectRowAt: IndexPath(row: 2, section: 0))
         check(fixture.selected == IndexPath(row: 1, section: 0), "native action index remapped")
+        check(adapter.tableView(actions, shouldHighlightRowAt: IndexPath(row: 3, section: 0)) && fixture.highlighted == IndexPath(row: 2, section: 0), "last native row highlight uses its original index")
+        fixture.highlighted = nil
+        check(adapter.tableView(actions, shouldHighlightRowAt: IndexPath(row: 0, section: 0)) && fixture.highlighted == nil, "download highlight does not address native row zero")
         adapter.tableView(actions, didSelectRowAt: IndexPath(row: 0, section: 1))
         check(fixture.selected == IndexPath(row: 0, section: 1), "second section index unchanged")
         fixture.count = 5; actions.reloadData(); actions.layoutIfNeeded()

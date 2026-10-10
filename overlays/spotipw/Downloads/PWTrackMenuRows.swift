@@ -79,6 +79,25 @@ final class PWTrackMenuRows: NSObject, UITableViewDataSource, UITableViewDelegat
         guard let path = original(indexPath) else { tableView.deselectRow(at: indexPath, animated: false); action(); return }
         delegate?.tableView?(tableView, didSelectRowAt: path)
     }
+    func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
+        guard let path = original(indexPath) else { return true }
+        return delegate?.tableView?(tableView, shouldHighlightRowAt: path) ?? true
+    }
+    func tableView(_ tableView: UITableView, didHighlightRowAt indexPath: IndexPath) {
+        if let path = original(indexPath) { delegate?.tableView?(tableView, didHighlightRowAt: path) }
+    }
+    func tableView(_ tableView: UITableView, didUnhighlightRowAt indexPath: IndexPath) {
+        if let path = original(indexPath) { delegate?.tableView?(tableView, didUnhighlightRowAt: path) }
+    }
+    func tableView(_ tableView: UITableView, willDeselectRowAt indexPath: IndexPath) -> IndexPath? {
+        guard let path = original(indexPath) else { return indexPath }
+        if delegate?.responds(to: #selector(UITableViewDelegate.tableView(_:willDeselectRowAt:))) != true { return indexPath }
+        guard let selected = delegate?.tableView?(tableView, willDeselectRowAt: path) else { return nil }
+        return selected.section == 0 ? IndexPath(row: selected.row + 1, section: 0) : selected
+    }
+    func tableView(_ tableView: UITableView, didDeselectRowAt indexPath: IndexPath) {
+        if let path = original(indexPath) { delegate?.tableView?(tableView, didDeselectRowAt: path) }
+    }
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
         if let path = original(indexPath) { delegate?.tableView?(tableView, willDisplay: cell, forRowAt: path) }
         align(in: tableView)
