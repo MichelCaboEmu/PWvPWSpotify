@@ -10,6 +10,7 @@
 @protocol PWSpotifyLocalSettings <NSObject>
 - (void)enableDocumentsFolderAccess;
 - (BOOL)enabled;
+- (void)setEnabled:(BOOL)enabled;
 @end
 @interface NSObject (PWSpotifyLocalConstructors)
 - (id)initWithDictionary:(NSDictionary *)dictionary;
@@ -17,10 +18,12 @@
 - (id)playContext:(id)context options:(id)options;
 - (id)pause:(id)options;
 - (id)resume:(id)options;
+- (BOOL)allowNetwork;
 - (id)provideEsperantoTransport;
 - (id)callSingle:(NSString *)service method:(NSString *)method payload:(NSData *)payload onResponse:(void (^)(NSData *))callback;
 @end
 static __weak id<PWSpotifyLocalSettings> pw_localSettings;
+static __weak id pw_connectivity;
 BOOL PWNativeLocalPlayback(void) { return [SGURIString(SGPlayerState().track.URI) hasPrefix:@"spotify:local:"]; }
 
 // The native scanner can rebuild a track without our context metadata. Restore
@@ -56,6 +59,9 @@ static BOOL command(NSDictionary *request) {
     if (!NSThread.isMainThread) return NO;
     @try {
         NSString *operation=request[@"operation"];
+        if ([operation isEqualToString:@"network_allowed"]) {
+            return !pw_connectivity || ((BOOL(*)(id,SEL))objc_msgSend)(pw_connectivity,@selector(allowNetwork));
+        }
         if ([operation isEqualToString:@"enable"]) {
             if (![pw_localSettings respondsToSelector:@selector(enableDocumentsFolderAccess)]) return NO;
             [pw_localSettings enableDocumentsFolderAccess];
@@ -105,15 +111,18 @@ static BOOL command(NSDictionary *request) {
     id transport=%orig;
     if ([transport respondsToSelector:@selector(callSingle:method:payload:onResponse:)]) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [PWDownloadsBridge configureNativeFolderScanner:^(NSString *path, void (^completion)(NSData *)) {
-                NSData *payload=[PWDownloadsBridge nativeFolderPayload:path];
-                if (!payload) { completion(nil); return; }
+            [PWDownloadsBridge configureNativeFolderScanner:^(NSString *method, NSData *payload, void (^completion)(NSData *)) {
+                if ([method isEqualToString:@"MutateDefaultSource"] && [pw_localSettings respondsToSelector:@selector(setEnabled:)]) {
+                    // This setter activates the native file feature; enable:
+                    // requests Media Library access, which our folder files do not need.
+                    [pw_localSettings setEnabled:YES];
+                }
                 __block id lifetime=nil;
                 __block BOOL finished=NO;
                 void (^finish)(NSData *)=^(NSData *response){
                     dispatch_async(dispatch_get_main_queue(), ^{ if(finished)return; finished=YES; completion(response); lifetime=nil; });
                 };
-                lifetime=[transport callSingle:@"spotify.local_files_esperanto.proto.LocalFiles" method:@"AddFolder" payload:payload onResponse:finish];
+                lifetime=[transport callSingle:@"spotify.local_files_esperanto.proto.LocalFiles" method:method payload:payload onResponse:finish];
                 if(!lifetime)finish(nil);
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW,16*NSEC_PER_SEC),dispatch_get_main_queue(),^{finish(nil);});
             }];
@@ -141,16 +150,18 @@ static BOOL command(NSDictionary *request) {
 %hook SPTConnectivityManagerImplementation
 - (id)initWithAnalyticsDelegate:(id)delegate allowNetwork:(BOOL)allowed scheduler:(id)scheduler callbackQueue:(id)queue {
     id value=%orig;
-    if (value) dispatch_async(dispatch_get_main_queue(), ^{ [PWDownloadsBridge nativeNetworkAllowed:allowed]; });
+    if (value) { pw_connectivity=value; dispatch_async(dispatch_get_main_queue(), ^{ [PWDownloadsBridge nativeNetworkAllowed:((BOOL(*)(id,SEL))objc_msgSend)(value,@selector(allowNetwork))]; }); }
     return value;
 }
 - (void)setAllowNetwork:(BOOL)allowed callback:(id)callback {
     %orig;
-    dispatch_async(dispatch_get_main_queue(), ^{ [PWDownloadsBridge nativeNetworkAllowed:allowed]; });
+    pw_connectivity=self;
+    dispatch_async(dispatch_get_main_queue(), ^{ [PWDownloadsBridge nativeNetworkAllowed:((BOOL(*)(id,SEL))objc_msgSend)(self,@selector(allowNetwork))]; });
 }
 - (void)setAllowNetwork:(BOOL)allowed {
     %orig;
-    dispatch_async(dispatch_get_main_queue(), ^{ [PWDownloadsBridge nativeNetworkAllowed:allowed]; });
+    pw_connectivity=self;
+    dispatch_async(dispatch_get_main_queue(), ^{ [PWDownloadsBridge nativeNetworkAllowed:((BOOL(*)(id,SEL))objc_msgSend)(self,@selector(allowNetwork))]; });
 }
 %end
 %ctor {

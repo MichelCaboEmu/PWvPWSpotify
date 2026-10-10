@@ -66,6 +66,10 @@ jobs:
         run: |
           xcrun swiftc overlays/spotipw/Downloads/PWNativeFolderProtocol.swift tests/native_folder_protocol.swift -o /tmp/pw-native-folder-tests
           /tmp/pw-native-folder-tests
+      - name: Test native library filter and connectivity transitions
+        run: |
+          xcrun swiftc overlays/spotipw/Downloads/PWLibraryFilterRules.swift overlays/spotipw/Downloads/PWPlaybackConnectivity.swift tests/library_filter.swift -o /tmp/pw-library-filter-tests
+          /tmp/pw-library-filter-tests
       - name: Test audio transfer, progress, timeout and cancellation
         run: |
           xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos13.0" overlays/spotipw/Downloads/PWDownloadParsing.swift overlays/spotipw/Downloads/PWYouTubeAccess.swift overlays/spotipw/Downloads/PWAudioTransfer.swift tests/audio_transfer.swift -o /tmp/pw-transfer-tests

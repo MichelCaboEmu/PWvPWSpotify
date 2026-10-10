@@ -6,7 +6,8 @@ enum PWOfflinePlaylist {
     private static var monitor: NWPathMonitor?
     private static var disconnected = false
     private static var networkAllowed = true
-    static var enabled: Bool { disconnected || !networkAllowed }
+    static var enabled: Bool { PWPlaybackConnectivity.useLocal(pathUnavailable: disconnected,
+        networkAllowed: PWNativePlayback.handler?(["operation":"network_allowed"]) ?? networkAllowed) }
     private static var views = NSHashTable<UIView>.weakObjects()
 
     static func start() {
@@ -15,19 +16,19 @@ enum PWOfflinePlaylist {
         path.pathUpdateHandler = { value in
             let unavailable = value.status == .unsatisfied
             Task { @MainActor in
-                let previous = enabled
                 disconnected = unavailable
-                if enabled != previous { refresh() }
+                refresh()
             }
         }
         path.start(queue: DispatchQueue(label: "pw.offline.reachability"))
     }
     static func setNetworkAllowed(_ allowed: Bool) {
-        let previous = enabled; networkAllowed = allowed
-        if enabled != previous { refresh() }
+        networkAllowed = allowed
+        refresh()
     }
     static func observe(_ view: UIView) { views.add(view) }
     private static func refresh() {
+        if !enabled { PWNativePlayback.cancelPlaylistRequest() }
         pwEvent("playlist_offline_state", details: ["offline":enabled, "network_allowed":networkAllowed])
         for view in views.allObjects where view.window != nil { view.setNeedsLayout() }
     }

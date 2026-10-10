@@ -31,6 +31,39 @@ final class NativeMenuFixture: NSObject, UITableViewDataSource, UITableViewDeleg
     }
 }
 
+
+private struct FilterInfo { var uri: URL }
+private struct FilterEntity { var entityInfo: FilterInfo }
+private enum FilterItem { case contentItem(FilterEntity) }
+private struct FilterWindow { var items: [FilterItem]; var range: Range<Int> }
+private struct FilterSection { var items: FilterWindow }
+private struct FilterContent { var sections: [FilterSection] }
+private struct FilterModel { var content: FilterContent }
+@MainActor
+private final class NativeLibraryFixture: NSObject, UICollectionViewDataSource {
+    let model = FilterModel(content: FilterContent(sections: [FilterSection(items: FilterWindow(items: (0..<6).map {
+        .contentItem(FilterEntity(entityInfo: FilterInfo(uri: URL(string: "spotify:playlist:fixture\($0)")!)))
+    }, range: 0..<6))]))
+    func collectionView(_ view: UICollectionView, numberOfItemsInSection section: Int) -> Int { 6 }
+    func collectionView(_ view: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        view.dequeueReusableCell(withReuseIdentifier: "native", for: indexPath)
+    }
+}
+@MainActor
+private final class NativeLibraryLayout: UICollectionViewLayout {
+    var columns = 1
+    override var collectionViewContentSize: CGSize { CGSize(width: 393, height: 600) }
+    override func layoutAttributesForItem(at path: IndexPath) -> UICollectionViewLayoutAttributes? {
+        guard path.section == 0, path.item < 6 else { return nil }
+        let attributes = UICollectionViewLayoutAttributes(forCellWith: path)
+        attributes.frame = CGRect(x: 12 + (path.item % columns) * 190, y: (path.item / columns) * 90, width: columns == 1 ? 369 : 178, height: 80)
+        return attributes
+    }
+    override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
+        (0..<6).compactMap { layoutAttributesForItem(at: IndexPath(item: $0, section: 0)) }.filter { $0.frame.intersects(rect) }
+    }
+}
+
 @MainActor
 @main
 final class UIRegressionApp: UIResponder, UIApplicationDelegate {
@@ -189,6 +222,29 @@ final class UIRegressionApp: UIResponder, UIApplicationDelegate {
         check(label.text == "PNL", "recycled row without download has no stale badge")
         PWDownloadedIndicator.apply(to: label, downloaded: true)
         check(label.text == "\u{fffc}\u{2002}PNL", "recycled downloaded row gets its own indicator")
+        report("UI RUNNING: native Library downloaded filter")
+        let librarySource = NativeLibraryFixture(), libraryLayout = NativeLibraryLayout()
+        let collection = UICollectionView(frame: CGRect(x: 0, y: 0, width: 393, height: 800), collectionViewLayout: libraryLayout)
+        collection.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "native")
+        collection.dataSource = librarySource; collection.reloadData(); collection.layoutIfNeeded()
+        let filter = PWLibraryFilterLayout(); filter.active = true
+        filter.eligible = Set(["spotify:playlist:fixture0", "spotify:playlist:fixture2", "spotify:playlist:fixture4"])
+        filter.prepare(libraryLayout)
+        check(filter.filtering && collection.numberOfItems(inSection: 0) == 6, "native Library counts are unchanged")
+        check(filter.attributes.map { $0.indexPath.item } == [0, 2, 4], "filtered cells retain original native index paths")
+        check(filter.item(at: IndexPath(item: 1, section: 0)) == nil, "non-downloaded playlist has no visible attributes")
+        check(filter.attributes.map { $0.frame.minY } == [8, 98, 188], "list rows reflow without gaps")
+        check(filter.size.height == 276, "list content height removes hidden playlists")
+        check(filter.elements(in: CGRect(x: 0, y: 0, width: 393, height: 90)).count == 1, "visible rect queries use filtered geometry")
+        libraryLayout.columns = 2
+        filter.eligible = Set(["spotify:playlist:fixture1", "spotify:playlist:fixture4", "spotify:playlist:fixture5"])
+        filter.prepare(libraryLayout)
+        check(filter.attributes.map { $0.indexPath.item } == [1, 4, 5], "grid native indices remain intact")
+        check(filter.attributes.map { $0.frame.minX } == [12, 202, 12] && filter.attributes.map { $0.frame.minY } == [8, 8, 98], "grid reflows across native columns")
+        filter.eligible = []; filter.prepare(libraryLayout)
+        check(filter.attributes.isEmpty && filter.size.height == 0, "empty selection shows no unrelated playlists")
+        filter.active = false
+        check(!filter.filtering, "turning filter off restores native layout")
         report("UI PASS: \(checks) checks"); exit(0)
     }
 }

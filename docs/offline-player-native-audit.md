@@ -206,3 +206,37 @@ Device logs include response result and action_gap between actual first rows.
 This remains a device-validation candidate: the native folder API, cache behavior,
 row recognizer ordering and playlist context resolution cannot be proven using
 standalone UIKit fixtures or compilation. Validate on Spotify 9.1.78/iOS 26.4.1.
+
+
+## Connectivity and Library filter candidate — 2026-10-10
+
+The supplied screenshot shows airplane mode and Spotify's own offline banner.
+The folder failure is separate from streaming connectivity. Read the captured
+SPTConnectivityManagerImplementation.allowNetwork getter (0x103497b58) at each
+selection, combined with NWPathMonitor, rather than trusting an old dispatched
+setter argument. Cancel playlist preparation on return online and suppress a
+late offline-only failure. Native streaming selection remains untouched online.
+
+LocalFilesSettingsModelImpl.setEnabled: (0x1050a9174) sets its preference and
+notifies the native observer, without calling the MediaLibrary authorization
+path in enable:. Enable the embedded LocalFiles MutateDefaultSource with
+DefaultSource.id=IOS_DOCUMENTS(6), enabled=true. AddFolder remains preferred;
+when refused, query GetTracks and require the expected local content_uri in its
+actual successful response. Embedded proto declares Query.range=3,
+Range.length=2, Response.item=1 and Item.content_uri=5. Well-formed unknown
+protobuf fields are allowed; duplicate result fields and truncated fields fail.
+No Documents-root copy is introduced. Folder activation and scanning behavior
+still require validation in the signed iPhone app, including external roots.
+
+The Library filter is attached to YourLibraryView.layoutSubviews (0x100f881d0).
+Native YourLibraryContentViewBinder.model.content.sections and each window's
+items/range resolve original playlist URIs, including Liked Songs. Layout
+attributes are reflowed while the native data source, index paths and actions
+remain unchanged. YourLibraryCollectionViewFlowLayout overrides prepareLayout
+(0x10663f8c0), elements (0x1021953cc) and item attributes (0x103ebe3d0);
+UIKit compositional layouts are also covered. The chip qualifies catalog
+playlists with at least one existing, verified audio file belonging to them.
+Unknown native schemas disable filtering instead of guessing row identities.
+Tests cover window offsets, canonical playlist identities, network transitions,
+list/grid reflow, hidden items, empty results and unchanged native item counts.
+The full native header hierarchy and indexer acceptance remain device checks.

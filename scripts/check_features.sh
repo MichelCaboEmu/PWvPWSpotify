@@ -13,7 +13,7 @@ SOURCES=(
   Shared/Player/PWLockScreenArtwork.m Shared/Genius/PWGenius.m
   Shared/LockScreenLyrics/LockScreenLyrics.x App/PWFeatureSettings.m
   Redesigned/Lyrics/SGRKaraokeView.m Native/Lyrics/LyricsPage.x
-  Shared/Downloads/PWDownloadButton.x Shared/Downloads/PWNativePlayback.x Native/Playlist/Playlist.x
+  Shared/Downloads/PWDownloadButton.x Shared/Downloads/PWNativePlayback.x Shared/Downloads/PWLibraryDownloadedFilter.x Native/Playlist/Playlist.x
   Shared/Lyrics/KaraokeSource.x Shared/Player/SpeedPitchMenu.x
   Redesigned/Playlist/PlaylistHeader.x Redesigned/Kit/SGRHeaderInfo.m Redesigned/Kit/SGRBridges.x Redesigned/Player/PlayerFooter.x
 )

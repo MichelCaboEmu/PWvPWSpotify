@@ -32,11 +32,11 @@ actor PWNativeFileImport {
         defer { if scoped { location.root.stopAccessingSecurityScopedResource() } }
         let values = try location.file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .ubiquitousItemDownloadingStatusKey])
         guard (values.fileSize ?? 0) > 1024, values.ubiquitousItemDownloadingStatus == nil || values.ubiquitousItemDownloadingStatus == .current else { throw pwError("Le fichier doit être présent sur l’iPhone pour le lire hors connexion.") }
-        try await PWNativeFolderScanner.register(root: location.root, directory: location.file.deletingLastPathComponent())
         let fm = FileManager.default, modified = values.contentModificationDate ?? .distantPast
         let old = records?[entry.track.id]
         if var saved = old, saved.canonical == true, saved.source == location.file.path,
            saved.size == values.fileSize, saved.modified == modified {
+            try await PWNativeFolderScanner.register(root: location.root, directory: location.file.deletingLastPathComponent(), expectedURI: saved.uri)
             try retireLegacy(&saved, id: entry.track.id); return descriptor(saved)
         }
         var asset = AVURLAsset(url: location.file, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
@@ -54,6 +54,7 @@ actor PWNativeFileImport {
         let title = try await text(.commonKeyTitle, tags), artist = try await text(.commonKeyArtist, tags), album = try await text(.commonKeyAlbumName, tags)
         let duration = try await asset.load(.duration).seconds
         guard let uri = PWNativeLocalIdentity.uri(artist: artist, album: album, title: title, duration: duration) else { throw pwError("Spotify ne peut pas identifier ce fichier : titre ou durée absent.") }
+        try await PWNativeFolderScanner.register(root: location.root, directory: location.file.deletingLastPathComponent(), expectedURI: uri)
         let latest = try location.file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         var record = Record(filename: entry.filename, source: location.file.path, size: latest.fileSize ?? 0,
             modified: latest.contentModificationDate ?? modified, uri: uri, title: title, artist: artist, album: album,
@@ -114,6 +115,10 @@ enum PWNativePlayback {
     static var activePlaylist: String?
     private static var playTask: Task<Void, Never>?
     private static var playRequest = UUID()
+    static func cancelPlaylistRequest() {
+        // Returning online must not leave an old indexing error over a new stream.
+        playTask?.cancel()
+    }
     static func importDownloaded(_ entry: PWLocalEntry) {
         Task {
             do {
@@ -166,7 +171,8 @@ enum PWNativePlayback {
                 }
                 throw pwError("Spotify n’a pas confirmé la lecture du fichier de cette playlist. Exporte les diagnostics pour vérifier l’indexation du dossier et la réponse du lecteur natif.")
             } catch {
-                if error is CancellationError || Task.isCancelled { return }
+                guard PWPlaybackConnectivity.displayFailure(playlistRequest: playlistURI != nil, offline: PWOfflinePlaylist.enabled,
+                    cancelled: error is CancellationError || Task.isCancelled) else { return }
                 pwEvent("native_play_failed", details: PWDownloadLog.error(error))
                 if let presenter = presenter { PWLocalLibraryController.notice(error.localizedDescription, from: presenter) }
             }

@@ -9,6 +9,13 @@ void PWPrepareNativeDownloads(UIView *row);
 void PWRefreshMetadataSession(void);
 
 @interface PWDownloadsBridge : NSObject
++ (void)installDownloadedLibraryFilter:(UIView *)root;
++ (void)prepareDownloadedLibraryLayout:(UICollectionViewLayout *)layout;
++ (BOOL)downloadedLibraryLayoutActive:(UICollectionViewLayout *)layout;
++ (NSArray<UICollectionViewLayoutAttributes *> *)downloadedLibraryElements:(UICollectionViewLayout *)layout rect:(CGRect)rect;
++ (UICollectionViewLayoutAttributes *)downloadedLibraryItem:(UICollectionViewLayout *)layout path:(NSIndexPath *)path;
++ (UICollectionViewLayoutAttributes *)downloadedLibrarySupplementary:(UICollectionViewLayout *)layout kind:(NSString *)kind path:(NSIndexPath *)path;
++ (CGSize)downloadedLibrarySize:(UICollectionViewLayout *)layout;
 + (void)setSpotifyAuthorization:(NSString *)authorization;
 + (void)libraryFrom:(UIViewController *)controller;
 + (void)errorsFrom:(UIViewController *)controller;
@@ -18,7 +25,7 @@ void PWRefreshMetadataSession(void);
 + (NSURL *)nativeArtworkURLForURI:(NSString *)uri;
 + (void)loadNativeArtworkForURI:(NSString *)uri completion:(void (^)(UIImage *image))completion;
 + (void)configureNativePlayback:(BOOL (^)(NSDictionary *request))handler;
-+ (void)configureNativeFolderScanner:(void (^)(NSString *path, void (^completion)(NSData *response)))handler;
++ (void)configureNativeFolderScanner:(void (^)(NSString *method, NSData *payload, void (^completion)(NSData *response)))handler;
 + (NSData *)nativeFolderPayload:(NSString *)path;
 + (void)nativePlaybackState:(NSDictionary *)state;
 + (void)startOfflinePlaylistBridge;
