@@ -10,12 +10,6 @@ func pwEvent(_ event: String, _ code: Int = 0, details: [String: Any] = [:]) {
     NotificationCenter.default.post(name: Notification.Name("PWDownloadDiagnostic"), object: nil,
                                     userInfo: ["event": event, "code": code, "details": PWDownloadLog.fields(details)])
 }
-struct PWDownloadError: LocalizedError {
-    let message: String
-    var pausesQueue = false
-    var fallbackEligible = false
-    var errorDescription: String? { message }
-}
 func pwError(_ message: String) -> PWDownloadError { PWDownloadError(message: message) }
 
 extension Bundle {
@@ -486,10 +480,10 @@ final class PWDownloadStore {
                 try Task.checkCancellation()
                 // Fallback for a missing match or a refused media stream, never
                 // for consent, quota, authentication or a cancelled task.
-                let missingMatch = (error as? PWDownloadError)?.fallbackEligible == true
                 let refusedMedia = (error as? PWAudioHTTPError).map { [403, 410].contains($0.status) } == true
-                guard missingMatch || refusedMedia else { throw error }
-                file = try await fetchFallback(track, original: error, trace: trace, progress: progress)
+                file = try await PWFallbackPolicy.recoverYouTube(error, refusedMedia: refusedMedia) {
+                    try await self.fetchFallback(track, original: error, trace: trace, progress: progress)
+                }
             }
         }
         // Basic tags are always written. External enrichment is explicit and
@@ -563,8 +557,12 @@ final class PWDownloadStore {
             let page = try await client.data(URLRequest(url: URL(string: "https://\(host)/")!),
                                              stage: isMusic ? .youtubeMusicConfig : .youtubeConfig, maximum: 4 * 1024 * 1024)
             guard let html = String(data: page, encoding: .utf8), let config = PWYouTubeSearchConfig.parse(html, music: isMusic) else {
-                pwEvent(isMusic ? "youtube_music_config_missing" : "youtube_config_missing")
-                throw PWDownloadError(message: "La configuration publique de YouTube est indisponible. La file est en pause ; exporte les logs pour le diagnostic.", pausesQueue: true)
+                pwEvent(isMusic ? "youtube_music_config_missing" : "youtube_config_missing", details: trace.merging([
+                    "configuration_fallback_eligible": true, "bytes": page.count]) { _, new in new })
+                // This page returned HTTP 200 but its search configuration is
+                // unreadable. Independent providers can still work. The error
+                // retains its pause flag if all fallback switches are disabled.
+                throw PWDownloadError.youtubeConfigurationUnavailable
             }
             searchConfigs[source] = (Date(), config); configuration = config
         }

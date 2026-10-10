@@ -1,7 +1,7 @@
 import Foundation
 
 @main enum SoundCloudRulesTests {
-    static func main() {
+    @MainActor static func main() async throws {
         var count = 0
         func check(_ value: @autoclosure () -> Bool, _ message: String) {
             count += 1; if !value() { fatalError("FAIL: " + message) }
@@ -36,6 +36,65 @@ import Foundation
         check(PWFallbackPolicy.order(soundCloud: true, audius: true) == ["soundcloud", "audius"], "fallback order")
         check(PWFallbackPolicy.order(soundCloud: false, audius: true) == ["audius"], "SoundCloud disable respected")
         check(PWFallbackPolicy.order(soundCloud: false, audius: false).isEmpty, "no forced fallback")
+        // Reproduce the log's terminal YouTube failure, using the production
+        // error and recovery path, rather than a successful SoundCloud fixture.
+        var calls: [String] = []
+        let configurationError = PWDownloadError.youtubeConfigurationUnavailable
+        let recovered = try await PWFallbackPolicy.recoverYouTube(configurationError) {
+            calls.append("soundcloud")
+            return "complete recording"
+        }
+        check(recovered == "complete recording" && calls == ["soundcloud"], "unreadable YouTube configuration reaches SoundCloud despite terminal pause flag")
+        let noMatchResult = try await PWFallbackPolicy.recoverYouTube(PWDownloadError(message: "no match", fallbackEligible: true)) { "soundcloud" }
+        check(noMatchResult == "soundcloud", "ordinary missing matches retain fallback")
+        calls.removeAll()
+        let mediaResult = try await PWFallbackPolicy.recoverYouTube(NSError(domain: "media", code: 403), refusedMedia: true) {
+            calls.append("soundcloud"); return "audio"
+        }
+        check(mediaResult == "audio" && calls == ["soundcloud"], "refused audio still reaches fallback after common media retry")
+        let terminalErrors: [Error] = [PWDownloadError(message: "quota", pausesQueue: true),
+                                      NSError(domain: "consent", code: 302), URLError(.cancelled),
+                                      URLError(.timedOut), NSError(domain: "search HTTP", code: 429),
+                                      NSError(domain: "search HTTP", code: 403)]
+        for failure in terminalErrors {
+            calls.removeAll()
+            do {
+                _ = try await PWFallbackPolicy.recoverYouTube(failure) { calls.append("soundcloud"); return "unexpected" }
+                fatalError("FAIL: non-eligible provider failure was swallowed")
+            } catch {
+                check(calls.isEmpty, "consent, quota and transport failures do not invoke SoundCloud")
+            }
+        }
+        calls.removeAll()
+        do {
+            let _: String = try await PWFallbackPolicy.recoverYouTube(configurationError) {
+                for provider in PWFallbackPolicy.order(soundCloud: false, audius: false) { calls.append(provider) }
+                throw configurationError
+            }
+            fatalError("FAIL: disabled fallback succeeded")
+        } catch let error as PWDownloadError {
+            check(calls.isEmpty && error.pausesQueue, "disabled fallback preserves explicit queue pause")
+        }
+        calls.removeAll()
+        do {
+            let _: String = try await PWFallbackPolicy.recoverYouTube(configurationError) {
+                calls.append("soundcloud")
+                throw PWDownloadError(message: "SoundCloud quota", pausesQueue: true)
+            }
+            fatalError("FAIL: fallback error was swallowed")
+        } catch let error as PWDownloadError {
+            check(calls == ["soundcloud"] && error.message == "SoundCloud quota" && error.pausesQueue, "SoundCloud failure remains visible with pause state")
+        }
+        let cancelled = await Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            var invoked = false
+            do {
+                _ = try await PWFallbackPolicy.recoverYouTube(configurationError) { invoked = true; return "unexpected" }
+                return false
+            } catch is CancellationError { return !invoked }
+            catch { return false }
+        }.value
+        check(cancelled, "cancelled queue cannot start SoundCloud even for eligible configuration failure")
         check(PWRecordingPolicy.unavailableYouTubeContainer(NSError(domain: "PWAudioContainer", code: 2)), "short YouTube recording triggers fallback")
         check(!PWRecordingPolicy.unavailableYouTubeContainer(NSError(domain: "PWAudioContainer", code: 1)), "container malfunction is not hidden by fallback")
         check(!PWRecordingPolicy.unavailableYouTubeContainer(NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError)), "full disk is not treated as unavailable recording")

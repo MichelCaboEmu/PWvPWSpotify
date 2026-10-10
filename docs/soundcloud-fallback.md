@@ -10,12 +10,14 @@ public website → Audius creator-enabled free download. The two fallback switch
 can disable their respective provider. SoundCloud is enabled by default. Choosing
 Audius directly still uses Audius directly; official Spotify mode remains separate.
 When Music finds no confirmed accessible recording, public YouTube video search
-also checks the artist's channel before moving to SoundCloud. Cookie consent and
-transport/extractor failures still keep their explicit pause behavior.
+also checks the artist's channel before moving to SoundCloud. A search page that
+returns HTTP 200 but has unreadable configuration now allows SoundCloud/Audius to
+run. With both fallbacks disabled, the same error pauses the queue. Cookie consent,
+HTTP quotas and transport/extractor failures keep their explicit pause behavior.
 
 An HTTP 403 from an audio transfer gets exactly two logical attempts, separated by
 three seconds, before switching provider. Consent, quotas, cancellation and an
-extractor malfunction do not silently trigger another provider. Each search,
+audio extractor malfunction do not silently trigger another provider. Each search,
 provenance rejection, transfer attempt and actual fallback source is logged. No
 cookies, signed URLs, public web client IDs or track authorization values are logged.
 

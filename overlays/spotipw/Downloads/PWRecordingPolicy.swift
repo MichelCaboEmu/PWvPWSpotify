@@ -1,5 +1,17 @@
 import Foundation
 
+struct PWDownloadError: LocalizedError {
+    let message: String
+    var pausesQueue = false
+    var fallbackEligible = false
+    var errorDescription: String? { message }
+
+    static var youtubeConfigurationUnavailable: PWDownloadError {
+        PWDownloadError(message: "La configuration de recherche YouTube est illisible. Une source de secours sera essayée si activée ; sinon, la file restera en pause.",
+                        pausesQueue: true, fallbackEligible: true)
+    }
+}
+
 // Conservative metadata checks, not an acoustic fingerprint or a guarantee
 // that a provider/uploader's metadata is truthful.
 enum PWRecordingPolicy {
@@ -46,6 +58,17 @@ enum PWRecordingPolicy {
 }
 
 enum PWFallbackPolicy {
+    // Explicit eligibility is separate from the terminal queue state. An
+    // unreadable search page should not block an independent provider, while
+    // consent, HTTP/search errors, quotas and cancellation keep their errors.
+    @MainActor
+    static func recoverYouTube<Value>(_ error: Error, refusedMedia: Bool = false,
+                                      fallback: () async throws -> Value) async throws -> Value {
+        try Task.checkCancellation()
+        guard (error as? PWDownloadError)?.fallbackEligible == true || refusedMedia else { throw error }
+        return try await fallback()
+    }
+
     static func order(soundCloud: Bool, audius: Bool) -> [String] {
         (soundCloud ? ["soundcloud"] : []) + (audius ? ["audius"] : [])
     }

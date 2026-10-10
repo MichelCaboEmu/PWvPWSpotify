@@ -2,12 +2,8 @@ import Foundation
 import AVFoundation
 import AudioToolbox
 
-// The app's error/UI diagnostics boundary is intentionally replaced, while the
-// actual public adapter, transfer and native audio converter compile unchanged.
-struct PWDownloadError: LocalizedError {
-    let message: String; var pausesQueue = false; var fallbackEligible = false
-    var errorDescription: String? { message }
-}
+// Only the UI diagnostics boundary is replaced; errors, public adapter,
+// transfer and native audio converter compile unchanged.
 func pwError(_ message: String) -> PWDownloadError { PWDownloadError(message: message) }
 func pwEvent(_ event: String, _ code: Int = 0, details: [String: Any] = [:]) {}
 
