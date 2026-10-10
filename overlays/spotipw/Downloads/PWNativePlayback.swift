@@ -117,7 +117,6 @@ enum PWNativePlayback {
     static func importDownloaded(_ entry: PWLocalEntry) {
         Task {
             do {
-                _ = handler?(["operation":"enable"])
                 _ = try await PWNativeFileImport.shared.prepare(entry)
                 pwEvent("native_file_imported")
             } catch { pwEvent("native_file_import_failed", details: PWDownloadLog.error(error)) }
@@ -137,9 +136,6 @@ enum PWNativePlayback {
                 }
             }
             do {
-                guard handler?(["operation":"enable"]) == true else {
-                    throw pwError("Le service audio de Spotify n’est pas encore prêt. Réessaie dans quelques secondes.")
-                }
                 var tracks: [[String: Any]] = []
                 for entry in entries {
                     try Task.checkCancellation()
@@ -147,7 +143,6 @@ enum PWNativePlayback {
                 }
                 guard let payload = PWNativeLocalIdentity.context(tracks: tracks, title: title, index: index, playlistURI: playlistURI),
                       let target = tracks[index]["uri"] as? String else { throw pwError("Liste de fichiers locaux invalide.") }
-                _ = handler?(["operation":"enable"])
                 // The native folder index is updated asynchronously.
                 try await Task.sleep(nanoseconds: 1_000_000_000)
                 try Task.checkCancellation()

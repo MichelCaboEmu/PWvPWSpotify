@@ -15,7 +15,6 @@ enum PWNativeFolderScanner {
             // Allow app-created settings and legacy folder organization to settle.
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             await PWLocalLibrary.shared.organizationTask?.value
-            _ = PWNativePlayback.handler?(["operation":"enable"])
             // Submit one migration at a time, so a user's play request is not
             // stuck behind hundreds of startup import tasks.
             for entry in PWLocalLibrary.shared.allFiles {

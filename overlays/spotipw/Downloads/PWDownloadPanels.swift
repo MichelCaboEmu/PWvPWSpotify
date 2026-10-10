@@ -18,7 +18,6 @@ extension PWDownloadsBridge {
     @objc(libraryFrom:)
     static func library(from presenter: UIViewController) {
         _ = PWDownloadStore.shared
-        _ = PWNativePlayback.handler?(["operation":"enable"])
         if PWNativePlayback.handler?(["operation":"open_library"]) != true {
             PWLocalLibraryController.notice("Ouvre la Bibliothèque Spotify, puis la playlist d’origine.", from: presenter)
         }
